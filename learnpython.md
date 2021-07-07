@@ -32,3 +32,13 @@
 * swapcase() – swaps the letters' cases (lower to upper and vice versa)
 * title() – makes the first letter in each word upper-case;
 * upper() – converts all the string's letter into upper-case letters.
+ 
+ ### String content can be determined using the following methods (all of them return Boolean values):
+
+  * endswith() – does the string end with a given substring?
+  * isalnum() – does the string consist only of letters and digits?
+  * isalpha() – does the string consist only of letters?
+  * islower() – does the string consists only of lower-case letters?
+  * isspace() – does the string consists only of white spaces?
+  * isupper() – does the string consists only of upper-case letters?
+  * startswith() – does the string begin with a given substring?
