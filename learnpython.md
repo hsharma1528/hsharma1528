@@ -42,3 +42,14 @@
   * isspace() – does the string consists only of white spaces?
   * isupper() – does the string consists only of upper-case letters?
   * startswith() – does the string begin with a given substring?
+  
+ ### String comparision in python 
+   Strings can be compared to strings using general comparison operators, but comparing them to numbers gives no reasonable result, because no string can be equal to any number. For example:
+
+  * string == number is always False;
+  * string != number is always True;
+  * string >= number always raises an exception.
+  
+### Sorting list of strings
+  * function named **sorted()**, creating a new, sorted list;
+  * method named **sort()**, which sorts the list
