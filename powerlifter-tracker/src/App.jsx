@@ -1,6 +1,8 @@
-import React from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import React, { useEffect } from 'react'
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { AppProvider, useApp } from './context/AppContext'
+import { supabase } from './lib/supabase'
+import { createProfile } from './lib/db'
 import Layout from './components/Layout/Layout'
 import Login from './components/Auth/Login'
 import Register from './components/Auth/Register'
@@ -9,6 +11,35 @@ import WorkoutLog from './components/Workout/WorkoutLog'
 import NutritionLog from './components/Nutrition/NutritionLog'
 import Profile from './components/Profile/Profile'
 import Progress from './components/Progress/Progress'
+
+/**
+ * After email confirmation Supabase redirects back here.
+ * If there's a pending profile in localStorage (set by Register.jsx when email
+ * confirmation was required), create it now and clear the pending data.
+ */
+function EmailConfirmHandler() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        const pending = localStorage.getItem('pt_pending_profile')
+        if (pending) {
+          try {
+            const profile = JSON.parse(pending)
+            profile.id = session.user.id   // make sure ID matches confirmed user
+            await createProfile(profile)
+          } catch {
+            // Profile may already exist — ignore
+          }
+          localStorage.removeItem('pt_pending_profile')
+          navigate('/dashboard', { replace: true })
+        }
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [navigate])
+  return null
+}
 
 function ProtectedRoute({ children }) {
   const { currentUser, isLoading } = useApp()
@@ -32,6 +63,8 @@ function PublicRoute({ children }) {
 
 function AppRoutes() {
   return (
+    <>
+    <EmailConfirmHandler />
     <Routes>
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
@@ -52,6 +85,7 @@ function AppRoutes() {
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
+    </>
   )
 }
 

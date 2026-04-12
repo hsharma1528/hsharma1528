@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react'
-import { getSession, getUserById, clearSession, setSession } from '../utils/storage'
+import { supabase } from '../lib/supabase'
+import { getProfile } from '../lib/db'
 
 const AppContext = createContext(null)
 
 const initialState = {
-  currentUser: null,
+  currentUser: null,   // Supabase auth user merged with profile row
   isLoading: true,
 }
 
@@ -26,40 +27,55 @@ function reducer(state, action) {
 export function AppProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState)
 
+  // Listen to Supabase auth state – fires on page load and on every sign-in/out
   useEffect(() => {
-    const session = getSession()
-    if (session?.userId) {
-      const user = getUserById(session.userId)
-      if (user) {
-        dispatch({ type: 'SET_USER', payload: user })
-      } else {
-        clearSession()
-        dispatch({ type: 'DONE_LOADING' })
+    let mounted = true
+
+    const loadProfile = async (authUser) => {
+      if (!authUser) {
+        if (mounted) dispatch({ type: 'LOGOUT' })
+        return
       }
-    } else {
-      dispatch({ type: 'DONE_LOADING' })
+      try {
+        const profile = await getProfile(authUser.id)
+        // Merge auth user with profile so components get one object
+        if (mounted) dispatch({ type: 'SET_USER', payload: { ...authUser, ...profile } })
+      } catch {
+        // Profile doesn't exist yet (shouldn't happen) – still mark loaded
+        if (mounted) dispatch({ type: 'DONE_LOADING' })
+      }
+    }
+
+    // Check existing session on mount
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      loadProfile(session?.user ?? null)
+    })
+
+    // Subscribe to future auth changes (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        loadProfile(session?.user ?? null)
+      }
+    )
+
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
     }
   }, [])
 
-  const login = (user) => {
-    setSession(user.id)
-    dispatch({ type: 'SET_USER', payload: user })
-  }
+  const logout = () => supabase.auth.signOut()
 
-  const logout = () => {
-    clearSession()
-    dispatch({ type: 'LOGOUT' })
-  }
-
-  const refreshUser = () => {
-    if (state.currentUser) {
-      const user = getUserById(state.currentUser.id)
-      if (user) dispatch({ type: 'SET_USER', payload: user })
-    }
+  // Call after a profile update to keep context in sync
+  const refreshUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const profile = await getProfile(user.id)
+    dispatch({ type: 'SET_USER', payload: { ...user, ...profile } })
   }
 
   return (
-    <AppContext.Provider value={{ ...state, login, logout, refreshUser, dispatch }}>
+    <AppContext.Provider value={{ ...state, logout, refreshUser, dispatch }}>
       {children}
     </AppContext.Provider>
   )

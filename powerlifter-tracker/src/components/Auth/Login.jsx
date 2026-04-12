@@ -1,31 +1,29 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Dumbbell, Eye, EyeOff, AlertCircle } from 'lucide-react'
-import { getUserByUsername } from '../../utils/storage'
-import { useApp } from '../../context/AppContext'
+import { signIn } from '../../lib/db'
 
 export default function Login() {
-  const { login } = useApp()
   const navigate = useNavigate()
-  const [form, setForm] = useState({ username: '', password: '' })
+  const [form, setForm] = useState({ email: '', password: '' })
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
-
-    const user = getUserByUsername(form.username)
-    if (!user || user.password !== form.password) {
-      setError('Invalid username or password.')
+    try {
+      const { error: authError } = await signIn(form.email.trim(), form.password)
+      if (authError) throw authError
+      // AppContext listens to onAuthStateChange and will update currentUser automatically
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.message || 'Invalid email or password.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    login(user)
-    navigate('/dashboard')
   }
 
   return (
@@ -52,14 +50,15 @@ export default function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-dark-300 mb-1.5">Username</label>
+              <label className="block text-sm font-medium text-dark-300 mb-1.5">Email</label>
               <input
-                type="text"
-                value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value })}
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors"
-                placeholder="your_username"
+                placeholder="you@example.com"
                 required
+                autoComplete="email"
               />
             </div>
 
@@ -73,6 +72,7 @@ export default function Login() {
                   className="w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-3 pr-12 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors"
                   placeholder="••••••••"
                   required
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"

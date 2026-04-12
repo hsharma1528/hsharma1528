@@ -1,99 +1,152 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Dumbbell, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Dumbbell, Eye, EyeOff, AlertCircle, Mail } from 'lucide-react'
 import { v4 as uuidv4 } from 'uuid'
-import { getUserByUsername, createUser } from '../../utils/storage'
-import { useApp } from '../../context/AppContext'
+import { signUp, isUsernameTaken, createProfile } from '../../lib/db'
 import { calcCalorieTargets } from '../../utils/calculations'
 
 const PHASES = [
   { value: 'offseason', label: 'Off-Season', desc: 'Building base strength & work capacity' },
-  { value: 'bulk', label: 'Bulk', desc: 'Gaining muscle mass with a calorie surplus' },
-  { value: 'cut', label: 'Cut', desc: 'Losing fat while preserving muscle' },
-  { value: 'meet_prep', label: 'Meet Prep', desc: 'Peaking for competition' },
+  { value: 'bulk',      label: 'Bulk',       desc: 'Gaining muscle mass with a calorie surplus' },
+  { value: 'cut',       label: 'Cut',        desc: 'Losing fat while preserving muscle' },
+  { value: 'meet_prep', label: 'Meet Prep',  desc: 'Peaking for competition' },
 ]
 
+const inputCls = "w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors"
+const labelCls = "block text-sm font-medium text-dark-300 mb-1.5"
+
 export default function Register() {
-  const { login } = useApp()
   const navigate = useNavigate()
-  const [step, setStep] = useState(1)
+  const [step, setStep] = useState(1)  // 1 = credentials, 2 = profile
   const [error, setError] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [loading, setLoading] = useState(false)
+  // "confirm" step: Supabase asked user to verify email
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false)
 
   const [form, setForm] = useState({
-    username: '',
-    password: '',
-    confirmPassword: '',
-    name: '',
-    age: '',
-    gender: 'male',
-    weight: '',
-    height: '',
-    weightUnit: 'lbs',
-    phase: 'offseason',
-    goalWeight: '',
-    meetDate: '',
-    squatMax: '',
-    benchMax: '',
-    deadliftMax: '',
+    username: '', email: '', password: '', confirmPassword: '',
+    name: '', age: '', gender: 'male',
+    weight: '', height: '', weightUnit: 'lbs',
+    phase: 'offseason', goalWeight: '', meetDate: '',
+    squatMax: '', benchMax: '', deadliftMax: '',
   })
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
-  const handleStep1 = (e) => {
+  // ── Step 1: validate credentials locally then advance ────────────
+  const handleStep1 = async (e) => {
     e.preventDefault()
     setError('')
-    if (form.password !== form.confirmPassword) {
-      setError('Passwords do not match.')
+    if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return }
+    if (form.password !== form.confirmPassword) { setError('Passwords do not match.'); return }
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(form.username)) {
+      setError('Username must be 3–20 characters (letters, numbers, underscore).')
       return
     }
-    if (form.password.length < 6) {
-      setError('Password must be at least 6 characters.')
-      return
+    setLoading(true)
+    try {
+      if (await isUsernameTaken(form.username)) {
+        setError('Username already taken — try another.')
+        return
+      }
+      setStep(2)
+    } catch {
+      setError('Network error — please try again.')
+    } finally {
+      setLoading(false)
     }
-    if (getUserByUsername(form.username)) {
-      setError('Username already taken.')
-      return
-    }
-    setStep(2)
   }
 
-  const handleSubmit = (e) => {
+  // ── Step 2: create Supabase auth user + profile row ──────────────
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setLoading(true)
 
-    const profile = {
-      id: uuidv4(),
-      username: form.username,
-      password: form.password,
-      name: form.name || form.username,
-      age: parseInt(form.age) || 25,
-      gender: form.gender,
-      weight: parseFloat(form.weight) || 0,
-      height: parseFloat(form.height) || 0,
-      weightUnit: form.weightUnit,
-      phase: form.phase,
-      goalWeight: parseFloat(form.goalWeight) || 0,
-      meetDate: form.meetDate || null,
-      squatMax: parseFloat(form.squatMax) || 0,
-      benchMax: parseFloat(form.benchMax) || 0,
-      deadliftMax: parseFloat(form.deadliftMax) || 0,
-      createdAt: new Date().toISOString(),
+    try {
+      // 1. Create auth user
+      const { data: authData, error: authError } = await signUp(
+        form.email.trim(),
+        form.password
+      )
+      if (authError) throw authError
+
+      const userId = authData.user?.id
+      if (!userId) throw new Error('No user ID returned — check Supabase settings.')
+
+      // 2. Build profile
+      const profileInput = {
+        age:    parseInt(form.age) || 25,
+        gender: form.gender,
+        weight: parseFloat(form.weight) || 0,
+        height: parseFloat(form.height) || 0,
+        weight_unit: form.weightUnit,
+        phase:  form.phase,
+        goal_weight:   parseFloat(form.goalWeight) || 0,
+        meet_date:     form.meetDate || null,
+        squat_max:     parseFloat(form.squatMax)  || 0,
+        bench_max:     parseFloat(form.benchMax)  || 0,
+        deadlift_max:  parseFloat(form.deadliftMax) || 0,
+      }
+
+      // Auto-calculate macro targets
+      const targets = calcCalorieTargets({
+        age: profileInput.age, gender: profileInput.gender,
+        weight: profileInput.weight, height: profileInput.height,
+        weightUnit: profileInput.weight_unit, phase: profileInput.phase,
+      })
+
+      const profile = {
+        id:       userId,
+        username: form.username.trim(),
+        name:     form.name.trim() || form.username.trim(),
+        ...profileInput,
+        target_calories: targets.calories,
+        target_protein:  targets.protein,
+        target_carbs:    targets.carbs,
+        target_fat:      targets.fat,
+      }
+
+      // 3. Insert profile (session may already be active if email confirm is off)
+      if (authData.session) {
+        await createProfile(profile)
+        navigate('/dashboard')
+      } else {
+        // Email confirmation required — store profile data for after confirmation
+        localStorage.setItem('pt_pending_profile', JSON.stringify(profile))
+        setAwaitingConfirm(true)
+      }
+    } catch (err) {
+      setError(err.message || 'Registration failed.')
+    } finally {
+      setLoading(false)
     }
-
-    const targets = calcCalorieTargets(profile)
-    profile.targetCalories = targets.calories
-    profile.targetProtein = targets.protein
-    profile.targetCarbs = targets.carbs
-    profile.targetFat = targets.fat
-
-    createUser(profile)
-    login(profile)
-    navigate('/dashboard')
   }
 
-  const inputCls = "w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors"
-  const labelCls = "block text-sm font-medium text-dark-300 mb-1.5"
+  // ── Awaiting email confirmation screen ───────────────────────────
+  if (awaitingConfirm) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-dark-950 px-4">
+        <div className="w-full max-w-md text-center">
+          <div className="w-16 h-16 rounded-2xl bg-blue-600/20 border border-blue-600/30 flex items-center justify-center mx-auto mb-6">
+            <Mail className="w-8 h-8 text-blue-400" />
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-3">Check your email</h1>
+          <p className="text-dark-400 mb-2">
+            We sent a confirmation link to <span className="text-white">{form.email}</span>.
+          </p>
+          <p className="text-dark-500 text-sm mb-6">
+            Click the link in the email — you'll be redirected back and logged in automatically.
+          </p>
+          <p className="text-dark-500 text-xs">
+            Tip: to skip this step for personal use, disable "Enable email confirmations" in your
+            Supabase project under Authentication → Settings.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-dark-950 px-4 py-12">
@@ -122,6 +175,7 @@ export default function Register() {
             </div>
           )}
 
+          {/* ── Step 1 ── */}
           {step === 1 && (
             <form onSubmit={handleStep1} className="space-y-4">
               <h2 className="text-lg font-semibold text-white mb-4">Account details</h2>
@@ -130,6 +184,7 @@ export default function Register() {
                 <label className={labelCls}>Username</label>
                 <input type="text" value={form.username} onChange={(e) => set('username', e.target.value)}
                   className={inputCls} placeholder="powerlifter_99" required />
+                <p className="text-dark-500 text-xs mt-1">3–20 chars, letters / numbers / underscore</p>
               </div>
 
               <div>
@@ -139,11 +194,17 @@ export default function Register() {
               </div>
 
               <div>
+                <label className={labelCls}>Email</label>
+                <input type="email" value={form.email} onChange={(e) => set('email', e.target.value)}
+                  className={inputCls} placeholder="you@example.com" required autoComplete="email" />
+              </div>
+
+              <div>
                 <label className={labelCls}>Password</label>
                 <div className="relative">
                   <input type={showPw ? 'text' : 'password'} value={form.password}
                     onChange={(e) => set('password', e.target.value)}
-                    className={`${inputCls} pr-12`} placeholder="Min. 6 characters" required />
+                    className={`${inputCls} pr-12`} placeholder="Min. 6 characters" required autoComplete="new-password" />
                   <button type="button" onClick={() => setShowPw(!showPw)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-dark-200">
                     {showPw ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -155,20 +216,21 @@ export default function Register() {
                 <label className={labelCls}>Confirm password</label>
                 <input type="password" value={form.confirmPassword}
                   onChange={(e) => set('confirmPassword', e.target.value)}
-                  className={inputCls} placeholder="••••••••" required />
+                  className={inputCls} placeholder="••••••••" required autoComplete="new-password" />
               </div>
 
-              <button type="submit" className="w-full bg-brand-600 hover:bg-brand-500 text-white font-semibold py-3 rounded-xl transition-colors mt-2">
-                Continue
+              <button type="submit" disabled={loading}
+                className="w-full bg-brand-600 hover:bg-brand-500 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 mt-2">
+                {loading ? 'Checking…' : 'Continue'}
               </button>
             </form>
           )}
 
+          {/* ── Step 2 ── */}
           {step === 2 && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <h2 className="text-lg font-semibold text-white mb-4">Your profile</h2>
 
-              {/* Demographics */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Age</label>
@@ -177,8 +239,7 @@ export default function Register() {
                 </div>
                 <div>
                   <label className={labelCls}>Gender</label>
-                  <select value={form.gender} onChange={(e) => set('gender', e.target.value)}
-                    className={inputCls}>
+                  <select value={form.gender} onChange={(e) => set('gender', e.target.value)} className={inputCls}>
                     <option value="male">Male</option>
                     <option value="female">Female</option>
                   </select>
@@ -193,8 +254,7 @@ export default function Register() {
                 </div>
                 <div>
                   <label className={labelCls}>Unit</label>
-                  <select value={form.weightUnit} onChange={(e) => set('weightUnit', e.target.value)}
-                    className={inputCls}>
+                  <select value={form.weightUnit} onChange={(e) => set('weightUnit', e.target.value)} className={inputCls}>
                     <option value="lbs">lbs</option>
                     <option value="kg">kg</option>
                   </select>
@@ -207,13 +267,12 @@ export default function Register() {
                   className={inputCls} placeholder="178" required />
               </div>
 
-              {/* Powerlifting phase */}
+              {/* Phase selector */}
               <div>
                 <label className={labelCls}>Current phase</label>
                 <div className="grid grid-cols-2 gap-2">
                   {PHASES.map((p) => (
-                    <button key={p.value} type="button"
-                      onClick={() => set('phase', p.value)}
+                    <button key={p.value} type="button" onClick={() => set('phase', p.value)}
                       className={`p-3 rounded-xl border text-left transition-all ${
                         form.phase === p.value
                           ? 'border-brand-500 bg-brand-500/10 text-white'
@@ -240,7 +299,6 @@ export default function Register() {
                 </div>
               </div>
 
-              {/* Goal weight */}
               <div>
                 <label className={labelCls}>Goal weight ({form.weightUnit}) <span className="text-dark-500">– optional</span></label>
                 <input type="number" value={form.goalWeight} onChange={(e) => set('goalWeight', e.target.value)}
@@ -256,13 +314,13 @@ export default function Register() {
               )}
 
               <div className="flex gap-3 mt-2">
-                <button type="button" onClick={() => setStep(1)}
+                <button type="button" onClick={() => { setStep(1); setError('') }}
                   className="flex-1 bg-dark-700 hover:bg-dark-600 text-dark-200 font-semibold py-3 rounded-xl transition-colors">
                   Back
                 </button>
-                <button type="submit"
-                  className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-3 rounded-xl transition-colors">
-                  Create account
+                <button type="submit" disabled={loading}
+                  className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50">
+                  {loading ? 'Creating…' : 'Create account'}
                 </button>
               </div>
             </form>
