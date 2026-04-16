@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   target_fat      INTEGER DEFAULT 80,
   -- S1.1: role determines which experience the user sees
   role            TEXT DEFAULT 'athlete' CHECK (role IN ('athlete', 'coach')),
+  -- S2.1: coach public profile fields
+  bio                     TEXT,
+  experience_years        INTEGER DEFAULT 0,
+  is_available            BOOLEAN DEFAULT true,
+  coaching_phases         JSONB DEFAULT '[]'::jsonb,
+  coaching_weight_classes JSONB DEFAULT '[]'::jsonb,
+  coaching_specialties    JSONB DEFAULT '[]'::jsonb,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );

@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
-import { Save, User, Dumbbell, Target } from 'lucide-react'
+import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { updateProfile } from '../../lib/db'
-import { calcCalorieTargets, phaseColors, phaseLabels, calcDOTS, calcWilks } from '../../utils/calculations'
+import { calcCalorieTargets, calcDOTS, calcWilks } from '../../utils/calculations'
 
 const PHASES = [
   { value: 'offseason', label: 'Off-Season', desc: 'Base building, higher volume' },
@@ -11,31 +11,70 @@ const PHASES = [
   { value: 'meet_prep', label: 'Meet Prep',  desc: 'Peaking for competition' },
 ]
 
+const COACHING_PHASES = [
+  { value: 'offseason', label: 'Off-Season' },
+  { value: 'bulk',      label: 'Bulk' },
+  { value: 'cut',       label: 'Cut' },
+  { value: 'meet_prep', label: 'Meet Prep' },
+]
+
+const WEIGHT_CLASSES = [
+  '47kg', '52kg', '57kg', '63kg', '69kg', '76kg', '84kg', '84kg+',
+  '59kg', '66kg', '74kg', '83kg', '93kg', '105kg', '120kg', '120kg+',
+]
+
+const SPECIALTIES = [
+  'Raw', 'Equipped', 'Powerbuilding', 'Beginner coaching',
+  'Meet preparation', 'Injury rehab', 'Nutrition planning', 'Online coaching',
+]
+
 const inputCls = "w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors"
 const labelCls = "block text-sm font-medium text-dark-300 mb-1.5"
 
-function Section({ title, icon: Icon, children }) {
+function Section({ title, icon: Icon, iconColor = 'text-brand-400', children }) {
   return (
     <div className="bg-dark-800 rounded-2xl border border-dark-700 p-6">
       <h2 className="text-white font-semibold flex items-center gap-2 mb-5">
-        <Icon className="w-5 h-5 text-brand-400" />{title}
+        <Icon className={`w-5 h-5 ${iconColor}`} />{title}
       </h2>
       {children}
     </div>
   )
 }
 
-export default function Profile() {
-  const { currentUser, refreshUser, dispatch } = useApp()
+function MultiPill({ options, selected, onToggle, colorActive = 'border-brand-500 bg-brand-500/10 text-brand-400' }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((opt) => {
+        const val = typeof opt === 'string' ? opt : opt.value
+        const lbl = typeof opt === 'string' ? opt : opt.label
+        const active = selected.includes(val)
+        return (
+          <button key={val} type="button" onClick={() => onToggle(val)}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+              active ? colorActive : 'border-dark-600 bg-dark-900 text-dark-400 hover:border-dark-500'
+            }`}>
+            {lbl}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
-  // Map DB column names (snake_case) to form fields
+export default function Profile() {
+  const { currentUser, dispatch } = useApp()
+  const isCoach = currentUser.role === 'coach'
+
   const [form, setForm] = useState({
+    // Common
     name:            currentUser.name            || '',
     age:             currentUser.age             || '',
     gender:          currentUser.gender          || 'male',
     weight:          currentUser.weight          || '',
     height:          currentUser.height          || '',
     weight_unit:     currentUser.weight_unit     || 'lbs',
+    // Athlete-specific
     phase:           currentUser.phase           || 'offseason',
     goal_weight:     currentUser.goal_weight     || '',
     meet_date:       currentUser.meet_date       || '',
@@ -46,11 +85,28 @@ export default function Profile() {
     target_protein:  currentUser.target_protein  || '',
     target_carbs:    currentUser.target_carbs    || '',
     target_fat:      currentUser.target_fat      || '',
+    // Coach-specific
+    bio:                     currentUser.bio                     || '',
+    experience_years:        currentUser.experience_years        || '',
+    is_available:            currentUser.is_available            ?? true,
+    coaching_phases:         currentUser.coaching_phases         || [],
+    coaching_weight_classes: currentUser.coaching_weight_classes || [],
+    coaching_specialties:    currentUser.coaching_specialties    || [],
   })
+
   const [saving, setSaving] = useState(false)
   const [saved,  setSaved]  = useState(false)
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
+
+  const toggleArrayField = (field, value) => {
+    setForm((f) => ({
+      ...f,
+      [field]: f[field].includes(value)
+        ? f[field].filter((v) => v !== value)
+        : [...f[field], value],
+    }))
+  }
 
   const recalcTargets = () => {
     const targets = calcCalorieTargets({
@@ -65,12 +121,13 @@ export default function Profile() {
     setSaving(true)
     try {
       const updates = {
-        name:            form.name,
-        age:             parseInt(form.age)          || currentUser.age,
-        gender:          form.gender,
-        weight:          parseFloat(form.weight)     || currentUser.weight,
-        height:          parseFloat(form.height)     || currentUser.height,
-        weight_unit:     form.weight_unit,
+        name:        form.name,
+        age:         parseInt(form.age)      || currentUser.age,
+        gender:      form.gender,
+        weight:      parseFloat(form.weight) || currentUser.weight,
+        height:      parseFloat(form.height) || currentUser.height,
+        weight_unit: form.weight_unit,
+        // Athlete fields
         phase:           form.phase,
         goal_weight:     parseFloat(form.goal_weight) || 0,
         meet_date:       form.meet_date || null,
@@ -81,6 +138,13 @@ export default function Profile() {
         target_protein:  parseInt(form.target_protein)  || currentUser.target_protein,
         target_carbs:    parseInt(form.target_carbs)    || currentUser.target_carbs,
         target_fat:      parseInt(form.target_fat)      || currentUser.target_fat,
+        // Coach fields
+        bio:                     form.bio,
+        experience_years:        parseInt(form.experience_years) || 0,
+        is_available:            form.is_available,
+        coaching_phases:         form.coaching_phases,
+        coaching_weight_classes: form.coaching_weight_classes,
+        coaching_specialties:    form.coaching_specialties,
       }
       await updateProfile(currentUser.id, updates)
       dispatch({ type: 'UPDATE_USER', payload: updates })
@@ -93,7 +157,6 @@ export default function Profile() {
     }
   }
 
-  // Computed stats
   const total = (parseFloat(form.squat_max) || 0) + (parseFloat(form.bench_max) || 0) + (parseFloat(form.deadlift_max) || 0)
   const weightKg = form.weight_unit === 'lbs' ? (parseFloat(form.weight) || 0) * 0.453592 : (parseFloat(form.weight) || 0)
   const totalKg  = form.weight_unit === 'lbs' ? total * 0.453592 : total
@@ -102,6 +165,7 @@ export default function Profile() {
 
   return (
     <div className="p-4 lg:p-8 max-w-2xl mx-auto space-y-6">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -117,7 +181,77 @@ export default function Profile() {
         </button>
       </div>
 
-      {/* Personal info */}
+      {/* ── Coach profile section (coaches only) ── */}
+      {isCoach && (
+        <Section title="Coach profile" icon={Users} iconColor="text-purple-400">
+          {/* Availability toggle */}
+          <div className="flex items-center justify-between p-4 bg-dark-900 rounded-xl border border-dark-700 mb-5">
+            <div>
+              <div className="text-white text-sm font-medium">Accepting new athletes</div>
+              <div className="text-dark-400 text-xs mt-0.5">
+                {form.is_available ? 'Athletes can send you enrollment requests' : 'Your profile is hidden from athlete search'}
+              </div>
+            </div>
+            <button type="button" onClick={() => set('is_available', !form.is_available)}
+              className="transition-colors">
+              {form.is_available
+                ? <ToggleRight className="w-9 h-9 text-purple-400" />
+                : <ToggleLeft  className="w-9 h-9 text-dark-500" />}
+            </button>
+          </div>
+
+          {/* Bio */}
+          <div className="mb-4">
+            <label className={labelCls}>Bio</label>
+            <textarea value={form.bio} onChange={(e) => set('bio', e.target.value)}
+              className={`${inputCls} resize-none`} rows={4}
+              placeholder="Tell athletes about your coaching background, philosophy, and what you specialise in…" />
+          </div>
+
+          {/* Years of experience */}
+          <div className="mb-5">
+            <label className={labelCls}>Years of coaching experience</label>
+            <input type="number" value={form.experience_years}
+              onChange={(e) => set('experience_years', e.target.value)}
+              className={inputCls} placeholder="0" min="0" max="50" />
+          </div>
+
+          {/* Coaching phases */}
+          <div className="mb-5">
+            <label className={`${labelCls} mb-2`}>Phases I coach</label>
+            <MultiPill
+              options={COACHING_PHASES}
+              selected={form.coaching_phases}
+              onToggle={(v) => toggleArrayField('coaching_phases', v)}
+              colorActive="border-purple-500 bg-purple-500/10 text-purple-400"
+            />
+          </div>
+
+          {/* Weight classes */}
+          <div className="mb-5">
+            <label className={`${labelCls} mb-2`}>Weight classes I work with</label>
+            <MultiPill
+              options={WEIGHT_CLASSES}
+              selected={form.coaching_weight_classes}
+              onToggle={(v) => toggleArrayField('coaching_weight_classes', v)}
+              colorActive="border-purple-500 bg-purple-500/10 text-purple-400"
+            />
+          </div>
+
+          {/* Specialties */}
+          <div>
+            <label className={`${labelCls} mb-2`}>Specialties</label>
+            <MultiPill
+              options={SPECIALTIES}
+              selected={form.coaching_specialties}
+              onToggle={(v) => toggleArrayField('coaching_specialties', v)}
+              colorActive="border-purple-500 bg-purple-500/10 text-purple-400"
+            />
+          </div>
+        </Section>
+      )}
+
+      {/* ── Personal info ── */}
       <Section title="Personal info" icon={User}>
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
@@ -150,62 +284,70 @@ export default function Profile() {
             <label className={labelCls}>Height (cm)</label>
             <input type="number" value={form.height} onChange={(e) => set('height', e.target.value)} className={inputCls} placeholder="178" />
           </div>
-          <div>
-            <label className={labelCls}>Goal weight ({form.weight_unit})</label>
-            <input type="number" value={form.goal_weight} onChange={(e) => set('goal_weight', e.target.value)} className={inputCls} placeholder="Goal" step="0.1" />
-          </div>
-        </div>
-      </Section>
-
-      {/* Training phase */}
-      <Section title="Training phase" icon={Target}>
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          {PHASES.map((p) => (
-            <button key={p.value} type="button" onClick={() => set('phase', p.value)}
-              className={`p-3 rounded-xl border text-left transition-all ${
-                form.phase === p.value ? 'border-brand-500 bg-brand-500/10 text-white' : 'border-dark-600 bg-dark-900 text-dark-300 hover:border-dark-500'
-              }`}>
-              <div className="font-medium text-sm">{p.label}</div>
-              <div className="text-xs text-dark-500 mt-0.5">{p.desc}</div>
-            </button>
-          ))}
-        </div>
-        {form.phase === 'meet_prep' && (
-          <div>
-            <label className={labelCls}>Meet date</label>
-            <input type="date" value={form.meet_date} onChange={(e) => set('meet_date', e.target.value)} className={inputCls} />
-          </div>
-        )}
-      </Section>
-
-      {/* Big 3 */}
-      <Section title="Competition lifts (1RM)" icon={Dumbbell}>
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          {[['squat_max','Squat'],['bench_max','Bench'],['deadlift_max','Deadlift']].map(([key, label]) => (
-            <div key={key}>
-              <label className={labelCls}>{label}</label>
-              <input type="number" value={form[key]} onChange={(e) => set(key, e.target.value)} className={inputCls} placeholder="0" step="2.5" />
+          {!isCoach && (
+            <div>
+              <label className={labelCls}>Goal weight ({form.weight_unit})</label>
+              <input type="number" value={form.goal_weight} onChange={(e) => set('goal_weight', e.target.value)} className={inputCls} placeholder="Goal" step="0.1" />
             </div>
-          ))}
+          )}
         </div>
-        {total > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            {[['SBD Total', `${total} ${form.weight_unit}`], ['DOTS', dots], ['Wilks', wilks]].map(([label, val]) => (
-              <div key={label} className="bg-dark-900 rounded-xl p-3 text-center border border-dark-700">
-                <div className="text-dark-400 text-xs">{label}</div>
-                <div className="text-white font-bold">{val}</div>
+      </Section>
+
+      {/* ── Athlete-only: Training phase ── */}
+      {!isCoach && (
+        <Section title="Training phase" icon={Target}>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {PHASES.map((p) => (
+              <button key={p.value} type="button" onClick={() => set('phase', p.value)}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  form.phase === p.value ? 'border-brand-500 bg-brand-500/10 text-white' : 'border-dark-600 bg-dark-900 text-dark-300 hover:border-dark-500'
+                }`}>
+                <div className="font-medium text-sm">{p.label}</div>
+                <div className="text-xs text-dark-500 mt-0.5">{p.desc}</div>
+              </button>
+            ))}
+          </div>
+          {form.phase === 'meet_prep' && (
+            <div>
+              <label className={labelCls}>Meet date</label>
+              <input type="date" value={form.meet_date} onChange={(e) => set('meet_date', e.target.value)} className={inputCls} />
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* ── Athlete-only: Competition lifts ── */}
+      {!isCoach && (
+        <Section title="Competition lifts (1RM)" icon={Dumbbell}>
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {[['squat_max','Squat'],['bench_max','Bench'],['deadlift_max','Deadlift']].map(([key, label]) => (
+              <div key={key}>
+                <label className={labelCls}>{label}</label>
+                <input type="number" value={form[key]} onChange={(e) => set(key, e.target.value)} className={inputCls} placeholder="0" step="2.5" />
               </div>
             ))}
           </div>
-        )}
-      </Section>
+          {total > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              {[['SBD Total', `${total} ${form.weight_unit}`], ['DOTS', dots], ['Wilks', wilks]].map(([label, val]) => (
+                <div key={label} className="bg-dark-900 rounded-xl p-3 text-center border border-dark-700">
+                  <div className="text-dark-400 text-xs">{label}</div>
+                  <div className="text-white font-bold">{val}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
 
-      {/* Nutrition targets */}
+      {/* ── Nutrition targets ── */}
       <Section title="Nutrition targets" icon={Target}>
-        <button onClick={recalcTargets}
-          className="w-full border border-dashed border-dark-600 hover:border-brand-600 text-dark-400 hover:text-brand-400 rounded-xl py-2.5 text-sm transition-all mb-4">
-          Auto-calculate from phase & stats
-        </button>
+        {!isCoach && (
+          <button onClick={recalcTargets}
+            className="w-full border border-dashed border-dark-600 hover:border-brand-600 text-dark-400 hover:text-brand-400 rounded-xl py-2.5 text-sm transition-all mb-4">
+            Auto-calculate from phase & stats
+          </button>
+        )}
         <div className="grid grid-cols-2 gap-4">
           {[['target_calories','Daily calories (kcal)'],['target_protein','Protein (g)'],['target_carbs','Carbs (g)'],['target_fat','Fat (g)']].map(([key, label]) => (
             <div key={key}>
