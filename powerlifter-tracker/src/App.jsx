@@ -11,6 +11,7 @@ import WorkoutLog from './components/Workout/WorkoutLog'
 import NutritionLog from './components/Nutrition/NutritionLog'
 import Profile from './components/Profile/Profile'
 import Progress from './components/Progress/Progress'
+import CoachDirectory from './components/Coaches/CoachDirectory'
 
 /**
  * After email confirmation Supabase redirects back here.
@@ -82,6 +83,7 @@ function AppRoutes() {
         <Route path="nutrition" element={<NutritionLog />} />
         <Route path="progress" element={<Progress />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="coaches" element={<CoachDirectory />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

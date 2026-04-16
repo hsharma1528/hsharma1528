@@ -122,6 +122,18 @@ export async function saveNutritionLog(log) {
   if (error) throw error
 }
 
+// ── Coaches ───────────────────────────────────────────────────────
+
+export async function getCoaches() {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, username, name, bio, experience_years, is_available, coaching_phases, coaching_weight_classes, coaching_specialties')
+    .eq('role', 'coach')
+    .order('experience_years', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
 // ── Weight log ────────────────────────────────────────────────────
 
 export async function getWeightLog(userId) {
