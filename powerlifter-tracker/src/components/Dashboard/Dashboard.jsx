@@ -6,6 +6,7 @@ import { Dumbbell, Apple, TrendingUp, Target, Flame, Droplets, Calendar, Chevron
 import { useApp } from '../../context/AppContext'
 import { getWorkouts, getNutritionByDate, getWeightLog } from '../../lib/db'
 import { phaseColors, phaseLabels, calcDOTS } from '../../utils/calculations'
+import CoachDashboard from './CoachDashboard'
 
 function Spinner() {
   return (
@@ -66,6 +67,9 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 export default function Dashboard() {
   const { currentUser } = useApp()
+
+  if (currentUser.role === 'coach') return <CoachDashboard />
+
   const today = format(new Date(), 'yyyy-MM-dd')
 
   const [workouts,       setWorkouts]       = useState([])
