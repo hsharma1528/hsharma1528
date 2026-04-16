@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   target_protein  INTEGER DEFAULT 180,
   target_carbs    INTEGER DEFAULT 300,
   target_fat      INTEGER DEFAULT 80,
+  -- S1.1: role determines which experience the user sees
+  role            TEXT DEFAULT 'athlete' CHECK (role IN ('athlete', 'coach')),
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
