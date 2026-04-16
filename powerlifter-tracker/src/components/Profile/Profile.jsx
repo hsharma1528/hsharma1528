@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
-import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight, UserCheck, Search } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { updateProfile } from '../../lib/db'
+import { updateProfile, getMyEnrollments, cancelEnrollment } from '../../lib/db'
 import { calcCalorieTargets, calcDOTS, calcWilks } from '../../utils/calculations'
 
 const PHASES = [
@@ -94,8 +95,17 @@ export default function Profile() {
     coaching_specialties:    currentUser.coaching_specialties    || [],
   })
 
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
+  const [saving,     setSaving]     = useState(false)
+  const [saved,      setSaved]      = useState(false)
+  const [enrollment, setEnrollment] = useState(null)
+
+  useEffect(() => {
+    if (!isCoach) {
+      getMyEnrollments(currentUser.id)
+        .then((enrs) => setEnrollment(enrs[0] || null))
+        .catch(console.error)
+    }
+  }, [currentUser.id, isCoach])
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
@@ -248,6 +258,50 @@ export default function Profile() {
               colorActive="border-purple-500 bg-purple-500/10 text-purple-400"
             />
           </div>
+        </Section>
+      )}
+
+      {/* ── Athlete: My Coach ── */}
+      {!isCoach && (
+        <Section title="My Coach" icon={UserCheck} iconColor="text-purple-400">
+          {!enrollment ? (
+            <div className="text-center py-4">
+              <p className="text-dark-400 text-sm mb-3">You don't have a coach yet.</p>
+              <Link to="/coaches"
+                className="inline-flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors">
+                <Search className="w-4 h-4" />Find a Coach
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-start gap-4 p-4 bg-dark-900 rounded-xl border border-dark-700">
+              <div className="w-10 h-10 rounded-full bg-purple-600/20 border border-purple-600/30 flex items-center justify-center font-bold text-purple-400 shrink-0">
+                {((enrollment.coach?.name || enrollment.coach?.username || '?')[0]).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-white font-medium">{enrollment.coach?.name || enrollment.coach?.username}</div>
+                <div className="text-dark-400 text-xs mt-0.5">@{enrollment.coach?.username}</div>
+                {enrollment.status === 'pending' && (
+                  <span className="mt-1 inline-block text-xs bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 rounded px-2 py-0.5">
+                    Request pending
+                  </span>
+                )}
+                {enrollment.status === 'accepted' && (
+                  <span className="mt-1 inline-block text-xs bg-green-500/10 text-green-400 border border-green-500/20 rounded px-2 py-0.5">
+                    Active coaching
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={async () => {
+                  if (!confirm('Cancel request / unenroll from this coach?')) return
+                  await cancelEnrollment(enrollment.id)
+                  setEnrollment(null)
+                }}
+                className="text-dark-500 hover:text-red-400 text-xs transition-colors shrink-0 mt-1">
+                {enrollment.status === 'pending' ? 'Cancel' : 'Unenroll'}
+              </button>
+            </div>
+          )}
         </Section>
       )}
 

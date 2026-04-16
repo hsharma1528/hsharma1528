@@ -134,6 +134,164 @@ export async function getCoaches() {
   return data ?? []
 }
 
+// ── Coach enrollments ─────────────────────────────────────────────
+
+export async function requestEnrollment(athleteId, coachId, message = '') {
+  const { error } = await supabase
+    .from('coach_enrollments')
+    .insert({ athlete_id: athleteId, coach_id: coachId, message })
+  if (error) throw error
+}
+
+export async function getMyEnrollments(athleteId) {
+  const { data, error } = await supabase
+    .from('coach_enrollments')
+    .select('*, coach:coach_id(id, username, name, bio, experience_years, coaching_specialties, is_available)')
+    .eq('athlete_id', athleteId)
+    .neq('status', 'declined')
+  if (error) throw error
+  return data ?? []
+}
+
+export async function cancelEnrollment(enrollmentId) {
+  const { error } = await supabase.from('coach_enrollments').delete().eq('id', enrollmentId)
+  if (error) throw error
+}
+
+export async function getEnrollmentRequests(coachId) {
+  const { data, error } = await supabase
+    .from('coach_enrollments')
+    .select('*, athlete:athlete_id(id, username, name, weight, weight_unit, phase, squat_max, bench_max, deadlift_max)')
+    .eq('coach_id', coachId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function updateEnrollmentStatus(enrollmentId, status) {
+  const { error } = await supabase
+    .from('coach_enrollments')
+    .update({ status })
+    .eq('id', enrollmentId)
+  if (error) throw error
+}
+
+export async function getMentees(coachId) {
+  const { data, error } = await supabase
+    .from('coach_enrollments')
+    .select('*, athlete:athlete_id(id, username, name, weight, weight_unit, phase, squat_max, bench_max, deadlift_max, target_calories, target_protein)')
+    .eq('coach_id', coachId)
+    .eq('status', 'accepted')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getMenteeProfile(athleteId) {
+  return getProfile(athleteId)
+}
+
+export async function getMenteeWorkouts(athleteId) {
+  const { data, error } = await supabase
+    .from('workouts')
+    .select('*')
+    .eq('user_id', athleteId)
+    .order('date', { ascending: false })
+    .limit(20)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getMenteeNutrition(athleteId) {
+  const { data, error } = await supabase
+    .from('nutrition_logs')
+    .select('*')
+    .eq('user_id', athleteId)
+    .order('date', { ascending: false })
+    .limit(14)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getMenteeWeightLog(athleteId) {
+  const { data, error } = await supabase
+    .from('weight_logs')
+    .select('*')
+    .eq('user_id', athleteId)
+    .order('date', { ascending: false })
+    .limit(30)
+  if (error) throw error
+  return data ?? []
+}
+
+// ── Workout plans ─────────────────────────────────────────────────
+
+export async function createWorkoutPlan(plan) {
+  const { data, error } = await supabase
+    .from('workout_plans')
+    .insert(plan)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateWorkoutPlan(planId, updates) {
+  const { error } = await supabase
+    .from('workout_plans')
+    .update(updates)
+    .eq('id', planId)
+  if (error) throw error
+}
+
+export async function deleteWorkoutPlan(planId) {
+  const { error } = await supabase.from('workout_plans').delete().eq('id', planId)
+  if (error) throw error
+}
+
+export async function getWorkoutPlansForMentee(coachId, athleteId) {
+  const { data, error } = await supabase
+    .from('workout_plans')
+    .select('*')
+    .eq('coach_id', coachId)
+    .eq('athlete_id', athleteId)
+    .order('week_start', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getPlan(planId) {
+  const { data, error } = await supabase
+    .from('workout_plans')
+    .select('*')
+    .eq('id', planId)
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getActivePlan(athleteId) {
+  const { data, error } = await supabase
+    .from('workout_plans')
+    .select('*')
+    .eq('athlete_id', athleteId)
+    .eq('is_active', true)
+    .order('week_start', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function getPlanWorkouts(planId) {
+  const { data, error } = await supabase
+    .from('workouts')
+    .select('id, date, plan_day_index, exercises')
+    .eq('plan_id', planId)
+  if (error) throw error
+  return data ?? []
+}
+
 // ── Weight log ────────────────────────────────────────────────────
 
 export async function getWeightLog(userId) {

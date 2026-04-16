@@ -3,41 +3,12 @@ import { format, parseISO } from 'date-fns'
 import { v4 as uuidv4 } from 'uuid'
 import {
   Plus, Trash2, ChevronDown, ChevronUp, Save, X, Edit2,
-  Dumbbell, Clock, Search, ChevronRight
+  Dumbbell, Clock, ClipboardList, ChevronRight, PlayCircle
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getWorkouts, addWorkout, updateWorkout, deleteWorkout } from '../../lib/db'
+import { getWorkouts, addWorkout, updateWorkout, deleteWorkout, getActivePlan } from '../../lib/db'
 import { calc1RM, calcRPE1RM } from '../../utils/calculations'
-
-const PRESET_EXERCISES = [
-  { name: 'Squat',               category: 'squat' },
-  { name: 'Bench Press',         category: 'bench' },
-  { name: 'Deadlift',            category: 'deadlift' },
-  { name: 'Romanian Deadlift',   category: 'deadlift' },
-  { name: 'Pause Squat',         category: 'squat' },
-  { name: 'Close-Grip Bench',    category: 'bench' },
-  { name: 'Sumo Deadlift',       category: 'deadlift' },
-  { name: 'Front Squat',         category: 'squat' },
-  { name: 'Incline Bench Press', category: 'bench' },
-  { name: 'Stiff-Leg Deadlift',  category: 'deadlift' },
-  { name: 'Overhead Press',      category: 'other' },
-  { name: 'Barbell Row',         category: 'other' },
-  { name: 'Pull-ups',            category: 'other' },
-  { name: 'Dips',                category: 'other' },
-  { name: 'Lat Pulldown',        category: 'other' },
-  { name: 'Leg Press',           category: 'other' },
-  { name: 'Hip Thrust',          category: 'other' },
-  { name: 'Cable Row',           category: 'other' },
-  { name: 'DB Curl',             category: 'other' },
-  { name: 'Tricep Pushdown',     category: 'other' },
-]
-
-const CATEGORY_COLORS = {
-  squat:    'text-blue-400 bg-blue-500/10 border-blue-500/30',
-  bench:    'text-green-400 bg-green-500/10 border-green-500/30',
-  deadlift: 'text-orange-400 bg-orange-500/10 border-orange-500/30',
-  other:    'text-purple-400 bg-purple-500/10 border-purple-500/30',
-}
+import ExercisePicker, { CATEGORY_COLORS } from './ExercisePicker'
 
 function SetRow({ set, onChange, onDelete, unit }) {
   return (
@@ -137,83 +108,86 @@ function ExerciseCard({ exercise, onChange, onDelete, unit }) {
   )
 }
 
-function ExercisePicker({ onSelect, onClose }) {
-  const [search, setSearch] = useState('')
-  const [custom, setCustom] = useState('')
-  const filtered = PRESET_EXERCISES.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center bg-dark-950/80 backdrop-blur-sm px-4 pb-4">
-      <div className="bg-dark-800 border border-dark-700 rounded-2xl w-full max-w-md max-h-[70vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-dark-700">
-          <h3 className="text-white font-semibold">Select exercise</h3>
-          <button onClick={onClose} className="text-dark-400 hover:text-white"><X className="w-5 h-5" /></button>
-        </div>
-        <div className="p-3 border-b border-dark-700">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-dark-900 border border-dark-600 rounded-xl pl-9 pr-4 py-2.5 text-white text-sm placeholder-dark-500 focus:outline-none focus:border-brand-500"
-              placeholder="Search exercises…" autoFocus />
-          </div>
-        </div>
-        <div className="overflow-y-auto flex-1 p-2 scrollbar-thin">
-          {filtered.map((ex) => {
-            const cc = CATEGORY_COLORS[ex.category] || CATEGORY_COLORS.other
-            return (
-              <button key={ex.name} onClick={() => { onSelect(ex); onClose() }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-dark-700 transition-colors text-left">
-                <span className={`px-2 py-0.5 rounded-lg border text-xs ${cc}`}>{ex.category}</span>
-                <span className="text-white text-sm">{ex.name}</span>
-                <ChevronRight className="w-4 h-4 text-dark-500 ml-auto" />
-              </button>
-            )
-          })}
-          {search && (
-            <div className="p-3 border-t border-dark-700 mt-2">
-              <p className="text-dark-400 text-xs mb-2">Or add custom:</p>
-              <div className="flex gap-2">
-                <input value={custom || search} onChange={(e) => setCustom(e.target.value)}
-                  className="flex-1 bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500"
-                  placeholder="Custom exercise name" />
-                <button onClick={() => { if ((custom || search).trim()) { onSelect({ name: (custom || search).trim(), category: 'other' }); onClose() } }}
-                  className="bg-brand-600 hover:bg-brand-500 text-white px-3 py-2 rounded-lg text-sm transition-colors">
-                  Add
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const emptyForm = () => ({ date: format(new Date(), 'yyyy-MM-dd'), exercises: [], notes: '', duration: '' })
+const emptyForm = () => ({
+  date: format(new Date(), 'yyyy-MM-dd'),
+  exercises: [],
+  notes: '',
+  duration: '',
+  plan_id: null,
+  plan_day_index: null,
+})
 
 export default function WorkoutLog() {
   const { currentUser } = useApp()
   const unit = currentUser.weight_unit || 'lbs'
 
-  const [workouts, setWorkouts] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [showForm, setShowForm] = useState(false)
-  const [showPicker, setShowPicker] = useState(false)
-  const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState(emptyForm())
+  const [workouts,    setWorkouts]    = useState([])
+  const [activePlan,  setActivePlan]  = useState(null)
+  const [planDone,    setPlanDone]    = useState({}) // { dayIndex: true }
+  const [loading,     setLoading]     = useState(true)
+  const [saving,      setSaving]      = useState(false)
+  const [showForm,    setShowForm]    = useState(false)
+  const [showPicker,  setShowPicker]  = useState(false)
+  const [editing,     setEditing]     = useState(null)
+  const [form,        setForm]        = useState(emptyForm())
+  const [planOpen,    setPlanOpen]    = useState(true)
 
   const loadWorkouts = async () => {
     setLoading(true)
-    try { setWorkouts(await getWorkouts(currentUser.id)) }
-    finally { setLoading(false) }
+    try {
+      const [ws, plan] = await Promise.all([
+        getWorkouts(currentUser.id),
+        getActivePlan(currentUser.id),
+      ])
+      setWorkouts(ws)
+      if (plan) {
+        setActivePlan(plan)
+        const done = {}
+        ws.filter((w) => w.plan_id === plan.id).forEach((w) => {
+          if (w.plan_day_index != null) done[w.plan_day_index] = true
+        })
+        setPlanDone(done)
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { loadWorkouts() }, [currentUser.id])
 
   const resetForm = () => { setForm(emptyForm()); setEditing(null) }
   const openNew   = () => { resetForm(); setShowForm(true) }
-  const openEdit  = (w) => { setForm({ date: w.date, exercises: w.exercises || [], notes: w.notes || '', duration: w.duration || '' }); setEditing(w.id); setShowForm(true) }
+  const openEdit  = (w) => {
+    setForm({ date: w.date, exercises: w.exercises || [], notes: w.notes || '', duration: w.duration || '', plan_id: null, plan_day_index: null })
+    setEditing(w.id)
+    setShowForm(true)
+  }
+
+  const openFromPlan = (day, dayIndex) => {
+    const exercises = (day.exercises || []).map((ex) => ({
+      id: uuidv4(),
+      name: ex.name,
+      category: ex.category || 'other',
+      sets: Array.from({ length: parseInt(ex.sets) || 3 }, (_, i) => ({
+        id: uuidv4(),
+        setNumber: i + 1,
+        weight: ex.target_weight || '',
+        reps: ex.target_reps || '',
+        rpe: '',
+      })),
+      notes: ex.notes || '',
+    }))
+    setForm({
+      date: format(new Date(), 'yyyy-MM-dd'),
+      exercises,
+      notes: `${activePlan.title} – ${day.day_label}`,
+      duration: '',
+      plan_id: activePlan.id,
+      plan_day_index: dayIndex,
+    })
+    setEditing(null)
+    setShowForm(true)
+  }
 
   const addExercise = (ex) =>
     setForm((f) => ({ ...f, exercises: [...f.exercises, { id: uuidv4(), name: ex.name, category: ex.category, sets: [{ id: uuidv4(), setNumber: 1, weight: '', reps: '', rpe: '' }], notes: '' }] }))
@@ -227,9 +201,17 @@ export default function WorkoutLog() {
     setSaving(true)
     try {
       if (editing) {
-        await updateWorkout(editing, { ...form, updated_at: new Date().toISOString() })
+        await updateWorkout(editing, { exercises: form.exercises, notes: form.notes, duration: form.duration ? parseInt(form.duration) : null, date: form.date })
       } else {
-        await addWorkout({ user_id: currentUser.id, date: form.date, exercises: form.exercises, notes: form.notes, duration: form.duration ? parseInt(form.duration) : null })
+        await addWorkout({
+          user_id: currentUser.id,
+          date: form.date,
+          exercises: form.exercises,
+          notes: form.notes,
+          duration: form.duration ? parseInt(form.duration) : null,
+          plan_id: form.plan_id || null,
+          plan_day_index: form.plan_day_index ?? null,
+        })
       }
       await loadWorkouts()
       setShowForm(false)
@@ -264,7 +246,11 @@ export default function WorkoutLog() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-white">{editing ? 'Edit workout' : 'Log workout'}</h1>
-            <p className="text-dark-400 text-sm">Add exercises, sets, and RPE</p>
+            {form.plan_id && (
+              <p className="text-brand-400 text-xs mt-0.5 flex items-center gap-1">
+                <ClipboardList className="w-3 h-3" /> From training plan
+              </p>
+            )}
           </div>
           <button onClick={() => { setShowForm(false); resetForm() }} className="text-dark-400 hover:text-white p-2">
             <X className="w-5 h-5" />
@@ -335,6 +321,57 @@ export default function WorkoutLog() {
         </button>
       </div>
 
+      {/* Active training plan */}
+      {activePlan && (
+        <div className="bg-dark-800 border border-brand-600/30 rounded-2xl mb-6 overflow-hidden">
+          <button
+            onClick={() => setPlanOpen(!planOpen)}
+            className="w-full flex items-center justify-between p-4 hover:bg-dark-700/50 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-brand-600/20 flex items-center justify-center">
+                <ClipboardList className="w-4 h-4 text-brand-400" />
+              </div>
+              <div className="text-left">
+                <div className="text-white font-medium text-sm">{activePlan.title}</div>
+                <div className="text-dark-400 text-xs">
+                  Active plan · {Object.keys(planDone).length}/{(activePlan.days || []).length} days logged this week
+                </div>
+              </div>
+            </div>
+            {planOpen ? <ChevronDown className="w-4 h-4 text-dark-400" /> : <ChevronRight className="w-4 h-4 text-dark-400" />}
+          </button>
+          {planOpen && (
+            <div className="px-4 pb-4 space-y-2 border-t border-dark-700">
+              {(activePlan.days || []).map((day, idx) => {
+                const done = !!planDone[idx]
+                return (
+                  <div key={day.id || idx}
+                    className={`flex items-center justify-between p-3 rounded-xl border transition-colors ${
+                      done ? 'border-green-500/30 bg-green-500/5' : 'border-dark-700 bg-dark-900'
+                    }`}>
+                    <div>
+                      <div className={`text-sm font-medium ${done ? 'text-green-400' : 'text-white'}`}>
+                        {done ? '✓ ' : ''}{day.day_label}
+                      </div>
+                      <div className="text-dark-500 text-xs mt-0.5">
+                        {(day.exercises || []).map((e) => e.name).join(', ')}
+                      </div>
+                    </div>
+                    {!done && (
+                      <button onClick={() => openFromPlan(day, idx)}
+                        className="flex items-center gap-1.5 text-xs bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0">
+                        <PlayCircle className="w-3.5 h-3.5" />
+                        Start
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
@@ -352,7 +389,10 @@ export default function WorkoutLog() {
                     <div key={w.id} className="bg-dark-800 border border-dark-700 rounded-2xl p-4">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <div className="text-white font-medium">{format(parseISO(w.date), 'EEEE, MMM d')}</div>
+                          <div className="text-white font-medium flex items-center gap-2">
+                            {format(parseISO(w.date), 'EEEE, MMM d')}
+                            {w.plan_id && <span className="text-xs bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded px-1.5 py-0.5">Plan</span>}
+                          </div>
                           <div className="text-dark-400 text-xs mt-0.5 flex items-center gap-3">
                             {w.exercises?.length} exercises
                             {w.duration && <span>{w.duration} min</span>}

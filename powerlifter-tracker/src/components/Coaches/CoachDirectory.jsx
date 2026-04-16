@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Search, Users, Star, Clock, CheckCircle, XCircle, ChevronDown } from 'lucide-react'
-import { getCoaches } from '../../lib/db'
+import { Search, Users, Clock, CheckCircle, XCircle, ChevronDown, X, Send } from 'lucide-react'
+import { useApp } from '../../context/AppContext'
+import { getCoaches, getMyEnrollments, requestEnrollment, cancelEnrollment } from '../../lib/db'
 
 const ALL_SPECIALTIES = [
   'Raw', 'Equipped', 'Powerbuilding', 'Beginner coaching',
@@ -10,16 +11,71 @@ const ALL_SPECIALTIES = [
 const ALL_PHASES = ['offseason', 'bulk', 'cut', 'meet_prep']
 const PHASE_LABELS = { offseason: 'Off-Season', bulk: 'Bulk', cut: 'Cut', meet_prep: 'Meet Prep' }
 
-function CoachCard({ coach }) {
+function RequestModal({ coach, onClose, onSent }) {
+  const { currentUser } = useApp()
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const handleSend = async () => {
+    setSending(true)
+    try {
+      await requestEnrollment(currentUser.id, coach.id, message.trim())
+      onSent(coach.id)
+      onClose()
+    } catch (err) {
+      if (err.message?.includes('duplicate')) {
+        alert('You already have a pending request with this coach.')
+      } else {
+        alert('Failed to send request: ' + err.message)
+      }
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-dark-950/80 backdrop-blur-sm p-4">
+      <div className="bg-dark-800 border border-dark-700 rounded-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b border-dark-700">
+          <div>
+            <h3 className="text-white font-semibold">Request coaching</h3>
+            <p className="text-dark-400 text-xs mt-0.5">from {coach.name || coach.username}</p>
+          </div>
+          <button onClick={onClose} className="text-dark-400 hover:text-white"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-dark-300 mb-1.5">Message <span className="text-dark-500">(optional)</span></label>
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)}
+              className="w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-3 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 resize-none text-sm"
+              rows={3} placeholder="Introduce yourself, your goals, current lifts…" />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose}
+              className="flex-1 bg-dark-700 hover:bg-dark-600 text-dark-200 font-semibold py-2.5 rounded-xl transition-colors text-sm">
+              Cancel
+            </button>
+            <button onClick={handleSend} disabled={sending}
+              className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+              <Send className="w-4 h-4" />{sending ? 'Sending…' : 'Send request'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CoachCard({ coach, enrollment, onRequest, onCancel }) {
   const [expanded, setExpanded] = useState(false)
   const initials = ((coach.name || coach.username || '?')[0]).toUpperCase()
-  const phases = Array.isArray(coach.coaching_phases) ? coach.coaching_phases : []
-  const specialties = Array.isArray(coach.coaching_specialties) ? coach.coaching_specialties : []
+  const phases      = Array.isArray(coach.coaching_phases)       ? coach.coaching_phases       : []
+  const specialties = Array.isArray(coach.coaching_specialties)  ? coach.coaching_specialties  : []
   const weightClasses = Array.isArray(coach.coaching_weight_classes) ? coach.coaching_weight_classes : []
 
   return (
     <div className="bg-dark-800 rounded-2xl border border-dark-700 p-5 flex flex-col gap-4">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-start gap-4">
         <div className="w-12 h-12 rounded-full bg-purple-600/20 border border-purple-600/30 flex items-center justify-center font-bold text-lg text-purple-400 shrink-0">
           {initials}
@@ -66,9 +122,7 @@ function CoachCard({ coach }) {
           <div className="text-dark-500 text-xs uppercase tracking-wider mb-2">Specialties</div>
           <div className="flex flex-wrap gap-1.5">
             {specialties.map((s) => (
-              <span key={s} className="px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs">
-                {s}
-              </span>
+              <span key={s} className="px-2 py-1 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs">{s}</span>
             ))}
           </div>
         </div>
@@ -94,49 +148,100 @@ function CoachCard({ coach }) {
           <div className="text-dark-500 text-xs uppercase tracking-wider mb-2">Weight classes</div>
           <div className="flex flex-wrap gap-1.5">
             {weightClasses.map((wc) => (
-              <span key={wc} className="px-2 py-1 rounded-lg bg-dark-700 border border-dark-600 text-dark-300 text-xs">
-                {wc}
-              </span>
+              <span key={wc} className="px-2 py-1 rounded-lg bg-dark-700 border border-dark-600 text-dark-300 text-xs">{wc}</span>
             ))}
           </div>
         </div>
       )}
+
+      {/* Enrollment CTA */}
+      <div className="border-t border-dark-700 pt-3">
+        {!enrollment && coach.is_available && (
+          <button onClick={() => onRequest(coach)}
+            className="w-full bg-brand-600 hover:bg-brand-500 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm">
+            Request coaching
+          </button>
+        )}
+        {!enrollment && !coach.is_available && (
+          <div className="text-center text-dark-500 text-xs py-1">Not accepting new athletes</div>
+        )}
+        {enrollment?.status === 'pending' && (
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-yellow-400 text-sm">
+              <Clock className="w-4 h-4" />Request pending
+            </span>
+            <button onClick={() => onCancel(enrollment.id, coach.id)}
+              className="text-dark-500 hover:text-red-400 text-xs transition-colors">
+              Cancel
+            </button>
+          </div>
+        )}
+        {enrollment?.status === 'accepted' && (
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-green-400 text-sm">
+              <CheckCircle className="w-4 h-4" />Your coach
+            </span>
+            <button onClick={() => onCancel(enrollment.id, coach.id)}
+              className="text-dark-500 hover:text-red-400 text-xs transition-colors">
+              Unenroll
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 export default function CoachDirectory() {
-  const [coaches, setCoaches] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const { currentUser } = useApp()
+  const [coaches,        setCoaches]        = useState([])
+  const [enrollmentMap,  setEnrollmentMap]  = useState({}) // { coachId: enrollment }
+  const [loading,        setLoading]        = useState(true)
+  const [modalCoach,     setModalCoach]     = useState(null)
+  const [search,         setSearch]         = useState('')
   const [filterSpecialty, setFilterSpecialty] = useState('')
-  const [filterPhase, setFilterPhase] = useState('')
-  const [availableOnly, setAvailableOnly] = useState(false)
+  const [filterPhase,    setFilterPhase]    = useState('')
+  const [availableOnly,  setAvailableOnly]  = useState(false)
 
   useEffect(() => {
-    getCoaches()
-      .then(setCoaches)
-      .catch(console.error)
-      .finally(() => setLoading(false))
-  }, [])
+    async function load() {
+      const [cs, enrs] = await Promise.all([
+        getCoaches(),
+        getMyEnrollments(currentUser.id),
+      ])
+      setCoaches(cs)
+      const map = {}
+      enrs.forEach((e) => { map[e.coach_id] = e })
+      setEnrollmentMap(map)
+      setLoading(false)
+    }
+    load().catch(console.error)
+  }, [currentUser.id])
+
+  const handleSent = (coachId) => {
+    setEnrollmentMap((m) => ({ ...m, [coachId]: { coach_id: coachId, status: 'pending' } }))
+  }
+
+  const handleCancel = async (enrollmentId, coachId) => {
+    if (!confirm('Cancel this request / unenroll from this coach?')) return
+    await cancelEnrollment(enrollmentId)
+    setEnrollmentMap((m) => { const nm = { ...m }; delete nm[coachId]; return nm })
+  }
 
   const filtered = useMemo(() => {
     return coaches.filter((c) => {
       if (availableOnly && !c.is_available) return false
       if (filterSpecialty) {
-        const specs = Array.isArray(c.coaching_specialties) ? c.coaching_specialties : []
-        if (!specs.includes(filterSpecialty)) return false
+        if (!(Array.isArray(c.coaching_specialties) ? c.coaching_specialties : []).includes(filterSpecialty)) return false
       }
       if (filterPhase) {
-        const phases = Array.isArray(c.coaching_phases) ? c.coaching_phases : []
-        if (!phases.includes(filterPhase)) return false
+        if (!(Array.isArray(c.coaching_phases) ? c.coaching_phases : []).includes(filterPhase)) return false
       }
       if (search) {
         const q = search.toLowerCase()
-        const nameMatch = (c.name || '').toLowerCase().includes(q)
-        const userMatch = (c.username || '').toLowerCase().includes(q)
-        const bioMatch  = (c.bio || '').toLowerCase().includes(q)
-        if (!nameMatch && !userMatch && !bioMatch) return false
+        if (!(c.name || '').toLowerCase().includes(q) &&
+            !(c.username || '').toLowerCase().includes(q) &&
+            !(c.bio || '').toLowerCase().includes(q)) return false
       }
       return true
     })
@@ -146,14 +251,16 @@ export default function CoachDirectory() {
 
   return (
     <div className="p-4 lg:p-8 max-w-3xl mx-auto space-y-6">
+      {modalCoach && (
+        <RequestModal coach={modalCoach} onClose={() => setModalCoach(null)} onSent={handleSent} />
+      )}
 
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Find a Coach</h1>
         <p className="text-dark-400 text-sm mt-1">Browse coaches on the platform and request coaching</p>
       </div>
 
-      {/* Search + filters */}
+      {/* Filters */}
       <div className="space-y-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
@@ -194,11 +301,17 @@ export default function CoachDirectory() {
         </div>
       ) : (
         <>
-          <p className="text-dark-500 text-xs">
-            {filtered.length} coach{filtered.length !== 1 ? 'es' : ''} found
-          </p>
+          <p className="text-dark-500 text-xs">{filtered.length} coach{filtered.length !== 1 ? 'es' : ''} found</p>
           <div className="grid gap-4">
-            {filtered.map((coach) => <CoachCard key={coach.id} coach={coach} />)}
+            {filtered.map((coach) => (
+              <CoachCard
+                key={coach.id}
+                coach={coach}
+                enrollment={enrollmentMap[coach.id]}
+                onRequest={setModalCoach}
+                onCancel={handleCancel}
+              />
+            ))}
           </div>
         </>
       )}
