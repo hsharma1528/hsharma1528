@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInDays, startOfWeek, isAfter } from 'date-fns'
 import {
   Users, ClipboardList, TrendingUp, UserPlus, CheckCircle, XCircle,
-  ChevronRight, Clock, Dumbbell
+  ChevronRight, Clock, Dumbbell, AlertTriangle, Activity, MessageCircle,
+  Flame, Trophy
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getEnrollmentRequests, updateEnrollmentStatus, getMentees, createNotification } from '../../lib/db'
+import {
+  getEnrollmentRequests, updateEnrollmentStatus, getMentees,
+  createNotification, getMenteeWorkouts, getActivePlan,
+  getLatestCheckIn, getWorkoutPlansForMentee
+} from '../../lib/db'
 import { phaseLabels, phaseColors } from '../../utils/calculations'
 
 function StatCard({ icon: Icon, label, value, accent }) {
@@ -120,28 +125,133 @@ function RequestCard({ req, onAccept, onDecline }) {
   )
 }
 
-function MenteeRow({ enrollment }) {
+function HealthDot({ status }) {
+  const colors = {
+    green:  'bg-green-400',
+    yellow: 'bg-yellow-400',
+    red:    'bg-red-400',
+    gray:   'bg-dark-500',
+  }
+  return <span className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${colors[status] || colors.gray}`} />
+}
+
+function computeHealth(workouts, activePlan) {
+  const now = new Date()
+  const lastSession = workouts[0]
+  const daysSince = lastSession
+    ? differenceInDays(now, parseISO(lastSession.date))
+    : null
+
+  // Compliance this week
+  let compliance = null
+  if (activePlan) {
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 })
+    const totalDays = (activePlan.days || []).length
+    const loggedThisWeek = workouts.filter(
+      (w) => w.plan_id === activePlan.id && isAfter(parseISO(w.date), weekStart)
+    ).length
+    if (totalDays > 0) compliance = Math.round((loggedThisWeek / totalDays) * 100)
+  }
+
+  // RPE trend: avg RPE of last 3 vs previous 3 sessions
+  let rpeTrend = null
+  const withRpe = workouts.filter((w) =>
+    (w.exercises || []).some((ex) =>
+      ex.sets?.some((s) => s.rpe && parseFloat(s.rpe) > 0)
+    )
+  )
+  if (withRpe.length >= 4) {
+    const avgRpe = (ws) => {
+      const all = ws.flatMap((w) =>
+        (w.exercises || []).flatMap((ex) =>
+          (ex.sets || []).map((s) => parseFloat(s.rpe)).filter(Boolean)
+        )
+      )
+      return all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0
+    }
+    const recent = avgRpe(withRpe.slice(0, 3))
+    const older  = avgRpe(withRpe.slice(3, 6))
+    if (older > 0) {
+      const delta = recent - older
+      rpeTrend = delta > 0.5 ? 'up' : delta < -0.5 ? 'down' : 'stable'
+    }
+  }
+
+  // Overall health status
+  let overallStatus = 'green'
+  if (daysSince === null || daysSince > 7) overallStatus = 'red'
+  else if (daysSince > 4) overallStatus = 'yellow'
+  const isFatigued = rpeTrend === 'up'
+
+  return { daysSince, compliance, rpeTrend, isFatigued, overallStatus }
+}
+
+function MenteeCard({ enrollment, healthData }) {
   const ath = enrollment.athlete || {}
   const phase = ath.phase || 'offseason'
   const pc = phaseColors[phase] || phaseColors.offseason
   const total = (ath.squat_max || 0) + (ath.bench_max || 0) + (ath.deadlift_max || 0)
 
+  const { daysSince, compliance, rpeTrend, isFatigued, overallStatus } = healthData || {
+    daysSince: null, compliance: null, rpeTrend: null, isFatigued: false, overallStatus: 'gray'
+  }
+
   return (
     <Link to={`/mentee/${ath.id}`}
-      className="flex items-center gap-3 p-3 rounded-xl bg-dark-900 border border-dark-700 hover:border-dark-500 transition-colors">
-      <div className="w-9 h-9 rounded-full bg-brand-600/20 border border-brand-600/30 flex items-center justify-center font-bold text-sm text-brand-400 shrink-0">
-        {((ath.name || ath.username || '?')[0]).toUpperCase()}
+      className="flex items-start gap-3 p-4 rounded-xl bg-dark-900 border border-dark-700 hover:border-dark-500 transition-colors">
+      <div className="relative shrink-0">
+        <div className="w-10 h-10 rounded-full bg-brand-600/20 border border-brand-600/30 flex items-center justify-center font-bold text-sm text-brand-400">
+          {((ath.name || ath.username || '?')[0]).toUpperCase()}
+        </div>
+        <HealthDot status={overallStatus} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-white text-sm font-medium">{ath.name || ath.username}</div>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-white text-sm font-medium">{ath.name || ath.username}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded border ${pc.bg} ${pc.border} ${pc.text}`}>
             {phaseLabels[phase]}
           </span>
-          {total > 0 && <span className="text-dark-500 text-xs">Total: {total} {ath.weight_unit}</span>}
+          {isFatigued && (
+            <span className="flex items-center gap-0.5 text-xs text-orange-400 bg-orange-500/10 border border-orange-500/20 rounded px-1.5 py-0.5">
+              <Flame className="w-3 h-3" />Fatigue flag
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5">
+          {daysSince !== null ? (
+            <span className={`text-xs flex items-center gap-1 ${daysSince > 7 ? 'text-red-400' : daysSince > 4 ? 'text-yellow-400' : 'text-green-400'}`}>
+              <Activity className="w-3 h-3" />
+              {daysSince === 0 ? 'Trained today' : `${daysSince}d ago`}
+            </span>
+          ) : (
+            <span className="text-dark-500 text-xs">No sessions logged</span>
+          )}
+
+          {compliance !== null && (
+            <span className="text-xs text-dark-400 flex items-center gap-1">
+              <ClipboardList className="w-3 h-3" />
+              {compliance}% compliance
+            </span>
+          )}
+
+          {rpeTrend && (
+            <span className={`text-xs flex items-center gap-0.5 ${
+              rpeTrend === 'up' ? 'text-orange-400' : rpeTrend === 'down' ? 'text-green-400' : 'text-dark-400'
+            }`}>
+              <TrendingUp className="w-3 h-3" />
+              RPE {rpeTrend === 'up' ? '↑ rising' : rpeTrend === 'down' ? '↓ falling' : '→ stable'}
+            </span>
+          )}
+
+          {total > 0 && (
+            <span className="text-dark-500 text-xs">
+              SBD: {ath.squat_max}/{ath.bench_max}/{ath.deadlift_max}
+            </span>
+          )}
         </div>
       </div>
-      <ChevronRight className="w-4 h-4 text-dark-500 shrink-0" />
+      <ChevronRight className="w-4 h-4 text-dark-500 shrink-0 mt-1" />
     </Link>
   )
 }
@@ -149,9 +259,39 @@ function MenteeRow({ enrollment }) {
 export default function CoachDashboard() {
   const { currentUser } = useApp()
 
-  const [requests, setRequests] = useState([])
-  const [mentees,  setMentees]  = useState([])
-  const [loading,  setLoading]  = useState(true)
+  const [requests,   setRequests]   = useState([])
+  const [mentees,    setMentees]    = useState([])
+  const [healthMap,  setHealthMap]  = useState({})
+  const [loading,    setLoading]    = useState(true)
+  const [healthLoading, setHealthLoading] = useState(false)
+
+  const loadMentees = async () => {
+    const ms = await getMentees(currentUser.id)
+    setMentees(ms)
+    return ms
+  }
+
+  const loadHealth = async (ms) => {
+    if (!ms.length) return
+    setHealthLoading(true)
+    const entries = await Promise.all(
+      ms.map(async (enrollment) => {
+        const id = enrollment.athlete?.id
+        if (!id) return [id, null]
+        try {
+          const [workouts, plan] = await Promise.all([
+            getMenteeWorkouts(id, 10),
+            getActivePlan(id),
+          ])
+          return [id, computeHealth(workouts, plan)]
+        } catch {
+          return [id, null]
+        }
+      })
+    )
+    setHealthMap(Object.fromEntries(entries))
+    setHealthLoading(false)
+  }
 
   useEffect(() => {
     async function load() {
@@ -159,10 +299,10 @@ export default function CoachDashboard() {
       try {
         const [reqs, ms] = await Promise.all([
           getEnrollmentRequests(currentUser.id),
-          getMentees(currentUser.id),
+          loadMentees(),
         ])
         setRequests(reqs)
-        setMentees(ms)
+        loadHealth(ms)
       } catch (err) {
         console.error(err)
       } finally {
@@ -175,13 +315,17 @@ export default function CoachDashboard() {
   const handleStatusChange = (id, newStatus) => {
     setRequests((rs) => rs.map((r) => r.id === id ? { ...r, status: newStatus } : r))
     if (newStatus === 'accepted') {
-      // Reload mentees to get the new one
-      getMentees(currentUser.id).then(setMentees).catch(console.error)
+      getMentees(currentUser.id).then((ms) => {
+        setMentees(ms)
+        loadHealth(ms)
+      }).catch(console.error)
     }
   }
 
-  const pending = requests.filter((r) => r.status === 'pending')
-  const firstName = (currentUser.name || currentUser.username || 'Coach').split(' ')[0]
+  const pending    = requests.filter((r) => r.status === 'pending')
+  const fatigued   = Object.values(healthMap).filter((h) => h?.isFatigued).length
+  const needsAttn  = Object.values(healthMap).filter((h) => h?.overallStatus === 'red').length
+  const firstName  = (currentUser.name || currentUser.username || 'Coach').split(' ')[0]
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-5xl mx-auto">
@@ -202,8 +346,8 @@ export default function CoachDashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Users}         label="Active mentees"    value={loading ? '…' : mentees.length}  accent="purple" />
         <StatCard icon={UserPlus}      label="Pending requests"  value={loading ? '…' : pending.length}  accent="blue"   />
-        <StatCard icon={ClipboardList} label="Your profile"       value={currentUser.is_available ? 'Open' : 'Closed'} accent="green" />
-        <StatCard icon={TrendingUp}    label="Total coached"      value={loading ? '…' : requests.filter((r) => r.status === 'accepted').length} accent="orange" />
+        <StatCard icon={AlertTriangle} label="Need attention"    value={loading || healthLoading ? '…' : needsAttn} accent="orange" />
+        <StatCard icon={Flame}         label="Fatigue flags"     value={loading || healthLoading ? '…' : fatigued} accent="green" />
       </div>
 
       {/* Pending requests */}
@@ -224,7 +368,7 @@ export default function CoachDashboard() {
         </div>
       )}
 
-      {/* Past requests (accepted/declined) */}
+      {/* Past requests */}
       {!loading && requests.filter((r) => r.status !== 'pending').length > 0 && (
         <div className="bg-dark-800 rounded-2xl border border-dark-700 p-6">
           <h2 className="font-semibold text-white flex items-center gap-2 mb-4 text-sm">
@@ -244,6 +388,9 @@ export default function CoachDashboard() {
           <h2 className="font-semibold text-white flex items-center gap-2">
             <Users className="w-5 h-5 text-purple-400" />
             Your mentees
+            {healthLoading && (
+              <span className="text-dark-500 text-xs font-normal ml-1">loading health data…</span>
+            )}
           </h2>
         </div>
 
@@ -258,13 +405,17 @@ export default function CoachDashboard() {
             </div>
             <h3 className="text-white font-semibold mb-1 text-sm">No mentees yet</h3>
             <p className="text-dark-400 text-xs max-w-xs mx-auto">
-              Athletes can find and request you from the coach directory. Accept a request to add them here.
+              Athletes can find and request you from the coach directory.
             </p>
           </div>
         ) : (
           <div className="space-y-2">
             {mentees.map((enrollment) => (
-              <MenteeRow key={enrollment.id} enrollment={enrollment} />
+              <MenteeCard
+                key={enrollment.id}
+                enrollment={enrollment}
+                healthData={healthMap[enrollment.athlete?.id]}
+              />
             ))}
           </div>
         )}
