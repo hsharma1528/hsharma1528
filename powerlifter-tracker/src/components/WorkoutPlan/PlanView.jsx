@@ -1,9 +1,83 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
-import { ArrowLeft, Edit2, CheckCircle, Circle, TrendingUp } from 'lucide-react'
-import { getPlan, getPlanWorkouts, getMenteeProfile } from '../../lib/db'
+import { ArrowLeft, Edit2, CheckCircle, Circle, TrendingUp, BookMarked, X } from 'lucide-react'
+import { getPlan, getPlanWorkouts, getMenteeProfile, createTemplate } from '../../lib/db'
 import { CATEGORY_COLORS } from '../Workout/ExercisePicker'
+import { useApp } from '../../context/AppContext'
+
+const inputCls = "w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-2.5 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors text-sm"
+
+function SaveTemplateModal({ days, title, coachId, onClose }) {
+  const [tTitle, setTTitle] = useState(title)
+  const [desc,   setDesc]   = useState('')
+  const [tags,   setTags]   = useState('')
+  const [saving, setSaving] = useState(false)
+  const [done,   setDone]   = useState(false)
+
+  const handleSave = async () => {
+    if (!tTitle.trim()) return
+    setSaving(true)
+    try {
+      await createTemplate({
+        coach_id:    coachId,
+        title:       tTitle.trim(),
+        description: desc.trim() || null,
+        tags:        tags.split(',').map((t) => t.trim()).filter(Boolean),
+        days,
+        is_system:   false,
+      })
+      setDone(true)
+      setTimeout(onClose, 1200)
+    } catch (err) {
+      alert('Failed to save template: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-dark-950/60" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-dark-800 border border-dark-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-white font-semibold flex items-center gap-2">
+              <BookMarked className="w-4 h-4 text-brand-400" />Save as template
+            </h3>
+            <button onClick={onClose} className="text-dark-400 hover:text-white p-1"><X className="w-4 h-4" /></button>
+          </div>
+          {done ? (
+            <p className="text-green-400 text-sm text-center py-4">Template saved!</p>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-dark-400 text-xs mb-1">Template name</label>
+                <input value={tTitle} onChange={(e) => setTTitle(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-dark-400 text-xs mb-1">Description (optional)</label>
+                <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2}
+                  className={inputCls + ' resize-none'} placeholder="Brief description…" />
+              </div>
+              <div>
+                <label className="block text-dark-400 text-xs mb-1">Tags (comma-separated)</label>
+                <input value={tags} onChange={(e) => setTags(e.target.value)} className={inputCls} placeholder="strength, 4-day" />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 bg-dark-700 hover:bg-dark-600 text-dark-200 font-semibold py-2.5 rounded-xl text-sm">Cancel</button>
+                <button onClick={handleSave} disabled={saving || !tTitle.trim()}
+                  className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50">
+                  {saving ? 'Saving…' : 'Save template'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
 
 function ViewExerciseRow({ ex }) {
   const cc = CATEGORY_COLORS[ex.category] || CATEGORY_COLORS.other
@@ -66,12 +140,14 @@ function ViewDayCard({ day, dayIndex, isLogged }) {
 
 export default function PlanView() {
   const { athleteId, planId } = useParams()
+  const { currentUser } = useApp()
   const navigate = useNavigate()
 
   const [plan,     setPlan]     = useState(null)
   const [athlete,  setAthlete]  = useState(null)
   const [loggedDays, setLoggedDays] = useState(new Set())
   const [loading,  setLoading]  = useState(true)
+  const [showTplModal, setShowTplModal] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -104,6 +180,14 @@ export default function PlanView() {
 
   return (
     <div className="p-4 lg:p-8 max-w-2xl mx-auto space-y-5">
+      {showTplModal && (
+        <SaveTemplateModal
+          days={plan.days || []}
+          title={plan.title}
+          coachId={currentUser.id}
+          onClose={() => setShowTplModal(false)}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center gap-3">
@@ -123,6 +207,10 @@ export default function PlanView() {
             )}
           </div>
         </div>
+        <button onClick={() => setShowTplModal(true)}
+          className="flex items-center gap-1.5 text-xs text-dark-400 hover:text-brand-400 border border-dark-600 hover:border-brand-500/30 px-3 py-2 rounded-xl transition-colors shrink-0">
+          <BookMarked className="w-3.5 h-3.5" />Template
+        </button>
         <Link to={`/mentee/${athleteId}/plan/${planId}`}
           className="flex items-center gap-1.5 text-xs bg-dark-700 hover:bg-dark-600 text-dark-300 hover:text-white border border-dark-600 px-3 py-2 rounded-xl transition-colors shrink-0">
           <Edit2 className="w-3.5 h-3.5" />Edit

@@ -499,3 +499,110 @@ export async function getMenteeEnrollment(coachId, athleteId) {
   if (error) throw error
   return data
 }
+
+// ── Training Blocks ────────────────────────────────────────────────
+
+export async function createTrainingBlock(block) {
+  const { data, error } = await supabase
+    .from('training_blocks')
+    .insert(block)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getTrainingBlocks(coachId, athleteId) {
+  const { data, error } = await supabase
+    .from('training_blocks')
+    .select('*')
+    .eq('coach_id', coachId)
+    .eq('athlete_id', athleteId)
+    .order('start_date', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function updateTrainingBlock(blockId, updates) {
+  const { error } = await supabase
+    .from('training_blocks')
+    .update(updates)
+    .eq('id', blockId)
+  if (error) throw error
+}
+
+export async function deleteTrainingBlock(blockId) {
+  const { error } = await supabase
+    .from('training_blocks')
+    .delete()
+    .eq('id', blockId)
+  if (error) throw error
+}
+
+// ── Plan Templates ─────────────────────────────────────────────────
+
+export async function getTemplates(coachId) {
+  const { data, error } = await supabase
+    .from('plan_templates')
+    .select('*')
+    .or(`coach_id.eq.${coachId},is_system.eq.true`)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createTemplate(template) {
+  const { data, error } = await supabase
+    .from('plan_templates')
+    .insert(template)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteTemplate(templateId) {
+  const { error } = await supabase
+    .from('plan_templates')
+    .delete()
+    .eq('id', templateId)
+  if (error) throw error
+}
+
+// Resolve percentage-based weights using athlete 1RMs, then create a plan
+export async function applyTemplate(template, { coachId, athleteId, weekStart, athleteProfile }) {
+  const unit = athleteProfile?.weight_unit || 'kg'
+  const maxMap = {
+    squat:    parseFloat(athleteProfile?.squat_max)    || 0,
+    bench:    parseFloat(athleteProfile?.bench_max)    || 0,
+    deadlift: parseFloat(athleteProfile?.deadlift_max) || 0,
+  }
+
+  const resolvedDays = (template.days || []).map((day) => ({
+    ...day,
+    exercises: (day.exercises || []).map((ex) => {
+      const match = /^(\d+(?:\.\d+)?)%$/.exec((ex.target_weight || '').trim())
+      if (!match) return ex
+      const pct = parseFloat(match[1])
+      const onerm = maxMap[ex.category] || 0
+      if (!onerm) return ex
+      const resolved = Math.round((onerm * pct) / 100 / 2.5) * 2.5
+      return {
+        ...ex,
+        target_weight: String(resolved),
+        notes: ex.notes
+          ? `${ex.notes} (${pct}% of ${onerm} ${unit})`
+          : `${pct}% of ${onerm} ${unit}`,
+      }
+    }),
+  }))
+
+  return createWorkoutPlan({
+    coach_id:   coachId,
+    athlete_id: athleteId,
+    title:      template.title,
+    week_start: weekStart,
+    is_active:  false,
+    days:       resolvedDays,
+  })
+}
