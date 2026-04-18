@@ -3,10 +3,15 @@ import { format, parseISO } from 'date-fns'
 import { v4 as uuidv4 } from 'uuid'
 import {
   Plus, Trash2, ChevronDown, ChevronUp, Save, X, Edit2,
-  Dumbbell, Clock, ClipboardList, ChevronRight, PlayCircle
+  Dumbbell, Clock, ClipboardList, ChevronRight, PlayCircle,
+  MessageSquare, Trophy
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getWorkouts, addWorkout, updateWorkout, deleteWorkout, getActivePlan, createNotification } from '../../lib/db'
+import {
+  getWorkouts, addWorkout, updateWorkout, deleteWorkout,
+  getActivePlan, createNotification, checkAndUpsertPR,
+  getWorkoutComments, addWorkoutComment
+} from '../../lib/db'
 import { calc1RM, calcRPE1RM } from '../../utils/calculations'
 import ExercisePicker, { CATEGORY_COLORS } from './ExercisePicker'
 
@@ -123,7 +128,7 @@ export default function WorkoutLog() {
 
   const [workouts,    setWorkouts]    = useState([])
   const [activePlan,  setActivePlan]  = useState(null)
-  const [planDone,    setPlanDone]    = useState({}) // { dayIndex: true }
+  const [planDone,    setPlanDone]    = useState({})
   const [loading,     setLoading]     = useState(true)
   const [saving,      setSaving]      = useState(false)
   const [showForm,    setShowForm]    = useState(false)
@@ -131,6 +136,11 @@ export default function WorkoutLog() {
   const [editing,     setEditing]     = useState(null)
   const [form,        setForm]        = useState(emptyForm())
   const [planOpen,    setPlanOpen]    = useState(true)
+  const [newPRAlert,  setNewPRAlert]  = useState([])
+  const [commentsWorkout, setCommentsWorkout] = useState(null) // { id, date }
+  const [comments,    setComments]    = useState([])
+  const [commentText, setCommentText] = useState('')
+  const [commentSaving, setCommentSaving] = useState(false)
 
   const loadWorkouts = async () => {
     setLoading(true)
@@ -200,10 +210,12 @@ export default function WorkoutLog() {
     if (form.exercises.length === 0) return
     setSaving(true)
     try {
+      let workoutId
       if (editing) {
         await updateWorkout(editing, { exercises: form.exercises, notes: form.notes, duration: form.duration ? parseInt(form.duration) : null, date: form.date })
+        workoutId = editing
       } else {
-        await addWorkout({
+        const saved = await addWorkout({
           user_id: currentUser.id,
           date: form.date,
           exercises: form.exercises,
@@ -212,6 +224,8 @@ export default function WorkoutLog() {
           plan_id: form.plan_id || null,
           plan_day_index: form.plan_day_index ?? null,
         })
+        workoutId = saved?.id
+
         if (form.plan_id && activePlan) {
           const dayLabel = activePlan.days?.[form.plan_day_index]?.day_label || `Day ${(form.plan_day_index ?? 0) + 1}`
           const athleteName = currentUser.name || currentUser.username
@@ -224,9 +238,47 @@ export default function WorkoutLog() {
           ).catch(() => {})
         }
       }
+
+      // PR detection — check each exercise's best set per rep count
+      const newPRs = []
+      for (const ex of form.exercises) {
+        // Group sets by rep count, keep best weight
+        const byReps = {}
+        for (const s of ex.sets) {
+          const reps = parseInt(s.reps)
+          const weight = parseFloat(s.weight)
+          if (!reps || !weight) continue
+          if (!byReps[reps] || weight > byReps[reps]) byReps[reps] = weight
+        }
+        for (const [repsStr, weight] of Object.entries(byReps)) {
+          const reps = parseInt(repsStr)
+          const result = await checkAndUpsertPR(
+            currentUser.id, ex.name, reps, weight, workoutId, form.date
+          ).catch(() => ({ isPR: false }))
+          if (result.isPR) newPRs.push({ exercise: ex.name, reps, weight })
+        }
+      }
+
+      // Notify coach of PRs
+      if (newPRs.length > 0 && activePlan?.coach_id) {
+        const athleteName = currentUser.name || currentUser.username
+        const prSummary = newPRs.map((p) => `${p.exercise} ${p.reps}RM: ${p.weight}${unit}`).join(', ')
+        createNotification(
+          activePlan.coach_id,
+          'new_pr',
+          `🏆 ${athleteName} hit a new PR!`,
+          prSummary,
+          `/mentee/${currentUser.id}`
+        ).catch(() => {})
+      }
+
       await loadWorkouts()
       setShowForm(false)
       resetForm()
+      if (newPRs.length > 0) {
+        setNewPRAlert(newPRs)
+        setTimeout(() => setNewPRAlert([]), 5000)
+      }
     } catch (err) {
       alert('Failed to save: ' + err.message)
     } finally {
@@ -238,6 +290,25 @@ export default function WorkoutLog() {
     if (!confirm('Delete this workout?')) return
     await deleteWorkout(id)
     setWorkouts((ws) => ws.filter((w) => w.id !== id))
+  }
+
+  const openComments = async (workout) => {
+    setCommentsWorkout(workout)
+    setCommentText('')
+    const data = await getWorkoutComments(workout.id).catch(() => [])
+    setComments(data)
+  }
+
+  const submitComment = async () => {
+    if (!commentText.trim() || !commentsWorkout) return
+    setCommentSaving(true)
+    try {
+      const c = await addWorkoutComment(commentsWorkout.id, currentUser.id, commentText.trim())
+      setComments((prev) => [...prev, c])
+      setCommentText('')
+    } finally {
+      setCommentSaving(false)
+    }
   }
 
   const grouped = useMemo(() => {
@@ -321,6 +392,66 @@ export default function WorkoutLog() {
 
   return (
     <div className="p-4 lg:p-8 max-w-3xl mx-auto">
+      {/* PR Toast */}
+      {newPRAlert.length > 0 && (
+        <div className="fixed top-4 right-4 z-50 bg-yellow-500/90 border border-yellow-400 text-yellow-900 rounded-2xl p-4 shadow-xl max-w-sm">
+          <div className="flex items-center gap-2 font-bold mb-1">
+            <Trophy className="w-5 h-5" /> New Personal Record{newPRAlert.length > 1 ? 's' : ''}!
+          </div>
+          {newPRAlert.map((pr, i) => (
+            <div key={i} className="text-sm">{pr.exercise} — {pr.reps}RM @ {pr.weight} {unit}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Comments Panel */}
+      {commentsWorkout && (
+        <>
+          <div className="fixed inset-0 z-40 bg-dark-950/60" onClick={() => setCommentsWorkout(null)} />
+          <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm bg-dark-900 border-l border-dark-700 flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-dark-700">
+              <div>
+                <div className="text-white font-semibold">Comments</div>
+                <div className="text-dark-400 text-xs">{format(parseISO(commentsWorkout.date), 'EEEE, MMM d')}</div>
+              </div>
+              <button onClick={() => setCommentsWorkout(null)} className="text-dark-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {comments.length === 0 && (
+                <p className="text-dark-500 text-sm text-center py-8">No comments yet.</p>
+              )}
+              {comments.map((c) => (
+                <div key={c.id} className={`rounded-xl p-3 ${c.author_id === currentUser.id ? 'bg-brand-600/10 border border-brand-600/20 ml-4' : 'bg-dark-800 border border-dark-700 mr-4'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-semibold ${c.author?.role === 'coach' ? 'text-purple-400' : 'text-brand-400'}`}>
+                      {c.author?.role === 'coach' ? '🎽 Coach ' : ''}{c.author?.name || c.author?.username}
+                    </span>
+                  </div>
+                  <p className="text-white text-sm">{c.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t border-dark-700">
+              <div className="flex gap-2">
+                <input
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && submitComment()}
+                  placeholder="Add a comment…"
+                  className="flex-1 bg-dark-800 border border-dark-600 rounded-xl px-3 py-2 text-white text-sm placeholder-dark-500 focus:outline-none focus:border-brand-500"
+                />
+                <button onClick={submitComment} disabled={!commentText.trim() || commentSaving}
+                  className="bg-brand-600 hover:bg-brand-500 text-white px-3 py-2 rounded-xl text-sm disabled:opacity-50 transition-colors">
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Workout log</h1>
@@ -410,7 +541,8 @@ export default function WorkoutLog() {
                             {totalVolume > 0 && <span>{Math.round(totalVolume).toLocaleString()} {unit} volume</span>}
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-1">
+                          <button onClick={() => openComments(w)} className="text-dark-400 hover:text-brand-400 p-1.5 transition-colors" title="Comments"><MessageSquare className="w-4 h-4" /></button>
                           <button onClick={() => openEdit(w)} className="text-dark-400 hover:text-white p-1.5 transition-colors"><Edit2 className="w-4 h-4" /></button>
                           <button onClick={() => handleDelete(w.id)} className="text-dark-400 hover:text-red-400 p-1.5 transition-colors"><Trash2 className="w-4 h-4" /></button>
                         </div>

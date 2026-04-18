@@ -3,12 +3,15 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import {
   ArrowLeft, User, Dumbbell, Apple, Scale, ClipboardList,
-  Plus, CheckCircle, Circle, Trash2, TrendingUp
+  Plus, CheckCircle, Circle, Trash2, TrendingUp, MessageSquare,
+  X, ClipboardCheck, Target, Trophy
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import {
   getMenteeProfile, getMenteeWorkouts, getMenteeNutrition, getMenteeWeightLog,
   getWorkoutPlansForMentee, deleteWorkoutPlan, updateWorkoutPlan, getPlanWorkouts,
+  getWorkoutComments, addWorkoutComment, getCheckIns, updateCheckInReply,
+  setMenteeNutritionTargets, getMenteeEnrollment, getPersonalRecords,
 } from '../../lib/db'
 import { calcDOTS, phaseLabels, phaseColors } from '../../utils/calculations'
 
@@ -80,26 +83,55 @@ export default function MenteeDetail() {
   const [nutrition,  setNutrition]  = useState([])
   const [weightLog,  setWeightLog]  = useState([])
   const [plans,      setPlans]      = useState([])
-  const [planDones,  setPlanDones]  = useState({}) // { planId: Set<dayIndex> }
+  const [planDones,  setPlanDones]  = useState({})
+  const [checkIns,   setCheckIns]   = useState([])
+  const [prs,        setPrs]        = useState([])
+  const [enrollment, setEnrollment] = useState(null)
   const [loading,    setLoading]    = useState(true)
+  // Comments panel
+  const [commentsWorkout, setCommentsWorkout] = useState(null)
+  const [comments,   setComments]   = useState([])
+  const [commentText, setCommentText] = useState('')
+  const [commentSaving, setCommentSaving] = useState(false)
+  // Nutrition targets panel
+  const [showNutrTargets, setShowNutrTargets] = useState(false)
+  const [nutrForm, setNutrForm] = useState({ custom_calories: '', custom_protein: '', custom_carbs: '', custom_fat: '' })
+  const [nutrSaving, setNutrSaving] = useState(false)
+  // Check-in replies
+  const [replyingTo, setReplyingTo] = useState(null)
+  const [replyText, setReplyText] = useState('')
+  const [replySaving, setReplySaving] = useState(false)
 
   async function loadAll() {
     setLoading(true)
     try {
-      const [prof, ws, nut, wl, pls] = await Promise.all([
+      const [prof, ws, nut, wl, pls, cis, prData, enroll] = await Promise.all([
         getMenteeProfile(athleteId),
         getMenteeWorkouts(athleteId),
         getMenteeNutrition(athleteId),
         getMenteeWeightLog(athleteId),
         getWorkoutPlansForMentee(currentUser.id, athleteId),
+        getCheckIns(athleteId, 8),
+        getPersonalRecords(athleteId).catch(() => []),
+        getMenteeEnrollment(currentUser.id, athleteId).catch(() => null),
       ])
       setProfile(prof)
       setWorkouts(ws)
       setNutrition(nut)
       setWeightLog(wl)
       setPlans(pls)
+      setCheckIns(cis)
+      setPrs(prData)
+      setEnrollment(enroll)
+      if (enroll) {
+        setNutrForm({
+          custom_calories: enroll.custom_calories || '',
+          custom_protein:  enroll.custom_protein  || '',
+          custom_carbs:    enroll.custom_carbs    || '',
+          custom_fat:      enroll.custom_fat      || '',
+        })
+      }
 
-      // For each plan, load its compliance
       const dones = {}
       await Promise.all(pls.map(async (plan) => {
         const planWs = await getPlanWorkouts(plan.id)
@@ -111,6 +143,56 @@ export default function MenteeDetail() {
       console.error(err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openComments = async (workout) => {
+    setCommentsWorkout(workout)
+    setCommentText('')
+    const data = await getWorkoutComments(workout.id).catch(() => [])
+    setComments(data)
+  }
+
+  const submitComment = async () => {
+    if (!commentText.trim() || !commentsWorkout) return
+    setCommentSaving(true)
+    try {
+      const c = await addWorkoutComment(commentsWorkout.id, currentUser.id, commentText.trim())
+      setComments((prev) => [...prev, c])
+      setCommentText('')
+    } finally {
+      setCommentSaving(false)
+    }
+  }
+
+  const saveNutrTargets = async () => {
+    setNutrSaving(true)
+    try {
+      const targets = {
+        custom_calories: nutrForm.custom_calories ? parseInt(nutrForm.custom_calories) : null,
+        custom_protein:  nutrForm.custom_protein  ? parseInt(nutrForm.custom_protein)  : null,
+        custom_carbs:    nutrForm.custom_carbs    ? parseInt(nutrForm.custom_carbs)    : null,
+        custom_fat:      nutrForm.custom_fat      ? parseInt(nutrForm.custom_fat)      : null,
+      }
+      await setMenteeNutritionTargets(currentUser.id, athleteId, targets)
+      setShowNutrTargets(false)
+    } finally {
+      setNutrSaving(false)
+    }
+  }
+
+  const submitReply = async (checkIn) => {
+    if (!replyText.trim()) return
+    setReplySaving(true)
+    try {
+      await updateCheckInReply(checkIn.id, replyText.trim())
+      setCheckIns((prev) => prev.map((ci) =>
+        ci.id === checkIn.id ? { ...ci, coach_reply: replyText.trim() } : ci
+      ))
+      setReplyingTo(null)
+      setReplyText('')
+    } finally {
+      setReplySaving(false)
     }
   }
 
@@ -157,6 +239,76 @@ export default function MenteeDetail() {
 
   return (
     <div className="p-4 lg:p-8 max-w-3xl mx-auto space-y-5">
+
+      {/* Comments Panel */}
+      {commentsWorkout && (
+        <>
+          <div className="fixed inset-0 z-40 bg-dark-950/60" onClick={() => setCommentsWorkout(null)} />
+          <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-sm bg-dark-900 border-l border-dark-700 flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-4 border-b border-dark-700">
+              <div>
+                <div className="text-white font-semibold">Comments</div>
+                <div className="text-dark-400 text-xs">{format(parseISO(commentsWorkout.date), 'EEEE, MMM d')}</div>
+              </div>
+              <button onClick={() => setCommentsWorkout(null)} className="text-dark-400 hover:text-white p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {comments.length === 0 && <p className="text-dark-500 text-sm text-center py-8">No comments yet. Leave feedback for this session.</p>}
+              {comments.map((c) => (
+                <div key={c.id} className={`rounded-xl p-3 ${c.author_id === currentUser.id ? 'bg-purple-600/10 border border-purple-600/20 ml-4' : 'bg-dark-800 border border-dark-700 mr-4'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-semibold ${c.author?.role === 'coach' ? 'text-purple-400' : 'text-brand-400'}`}>
+                      {c.author?.role === 'coach' ? '🎽 ' : ''}{c.author?.name || c.author?.username}
+                    </span>
+                  </div>
+                  <p className="text-white text-sm">{c.body}</p>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t border-dark-700">
+              <div className="flex gap-2">
+                <input value={commentText} onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && submitComment()}
+                  placeholder="Leave feedback…"
+                  className="flex-1 bg-dark-800 border border-dark-600 rounded-xl px-3 py-2 text-white text-sm placeholder-dark-500 focus:outline-none focus:border-brand-500" />
+                <button onClick={submitComment} disabled={!commentText.trim() || commentSaving}
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-xl text-sm disabled:opacity-50 transition-colors">Send</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Nutrition targets modal */}
+      {showNutrTargets && (
+        <>
+          <div className="fixed inset-0 z-40 bg-dark-950/60" onClick={() => setShowNutrTargets(false)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-dark-800 border border-dark-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-white font-semibold">Custom nutrition targets</h3>
+                <button onClick={() => setShowNutrTargets(false)} className="text-dark-400 hover:text-white p-1"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                {[['custom_calories', 'Calories (kcal)'], ['custom_protein', 'Protein (g)'], ['custom_carbs', 'Carbs (g)'], ['custom_fat', 'Fat (g)']].map(([field, label]) => (
+                  <div key={field}>
+                    <label className="block text-dark-400 text-xs mb-1">{label}</label>
+                    <input type="number" value={nutrForm[field]} onChange={(e) => setNutrForm({ ...nutrForm, [field]: e.target.value })}
+                      className="w-full bg-dark-900 border border-dark-600 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500"
+                      placeholder="—" min="0" />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowNutrTargets(false)} className="flex-1 bg-dark-700 hover:bg-dark-600 text-dark-200 font-semibold py-2.5 rounded-xl text-sm transition-colors">Cancel</button>
+                <button onClick={saveNutrTargets} disabled={nutrSaving} className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50 transition-colors">
+                  {nutrSaving ? 'Saving…' : 'Save targets'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Header */}
       <div className="flex items-center gap-4">
@@ -283,7 +435,13 @@ export default function MenteeDetail() {
                 <div key={w.id} className="bg-dark-900 rounded-xl border border-dark-700 p-3">
                   <div className="flex items-start justify-between mb-2">
                     <div className="text-white text-sm font-medium">{format(parseISO(w.date), 'EEE, MMM d')}</div>
-                    <div className="text-dark-500 text-xs">{vol > 0 ? `${Math.round(vol).toLocaleString()} ${profile.weight_unit} vol` : ''}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-dark-500 text-xs">{vol > 0 ? `${Math.round(vol).toLocaleString()} ${profile.weight_unit}` : ''}</span>
+                      <button onClick={() => openComments(w)}
+                        className="flex items-center gap-1 text-xs text-dark-400 hover:text-purple-400 border border-dark-600 hover:border-purple-500/30 rounded-lg px-2 py-1 transition-colors">
+                        <MessageSquare className="w-3 h-3" />Comment
+                      </button>
+                    </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {w.exercises?.map((ex) => {
@@ -358,6 +516,125 @@ export default function MenteeDetail() {
                 <div className="text-white font-medium text-sm">{entry.weight}<span className="text-dark-500 text-xs ml-0.5">{profile.weight_unit}</span></div>
               </div>
             ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Personal Records */}
+      {prs.length > 0 && (
+        <Section title="Personal records" icon={Trophy} iconColor="text-yellow-400">
+          <div className="space-y-2">
+            {Object.entries(
+              prs.reduce((acc, r) => { (acc[r.exercise_name] = acc[r.exercise_name] || []).push(r); return acc }, {})
+            ).slice(0, 6).map(([exName, records]) => {
+              const best1rm = records.find((r) => r.rep_count === 1)
+              const others = records.filter((r) => r.rep_count !== 1).slice(0, 3)
+              return (
+                <div key={exName} className="flex items-center gap-3 bg-dark-900 rounded-xl border border-dark-700 p-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-white text-sm font-medium truncate">{exName}</div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {best1rm && (
+                      <span className="text-xs bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 rounded-lg px-2 py-1">
+                        1RM: {best1rm.weight} {profile.weight_unit}
+                      </span>
+                    )}
+                    {others.map((r) => (
+                      <span key={r.id} className="text-xs text-dark-400 hidden sm:inline">
+                        {r.rep_count}RM: {r.weight}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Nutrition targets */}
+      <Section
+        title="Nutrition targets"
+        icon={Target}
+        iconColor="text-green-400"
+        action={
+          <button onClick={() => setShowNutrTargets(true)}
+            className="text-xs text-brand-400 hover:text-brand-300 border border-brand-500/20 rounded-lg px-2 py-1 transition-colors">
+            Set targets
+          </button>
+        }
+      >
+        {enrollment?.custom_calories ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[['Calories', enrollment.custom_calories, 'kcal'], ['Protein', enrollment.custom_protein, 'g'], ['Carbs', enrollment.custom_carbs, 'g'], ['Fat', enrollment.custom_fat, 'g']].map(([label, val, unit]) => (
+              <div key={label} className="bg-dark-900 rounded-xl border border-dark-700 p-3 text-center">
+                <div className="text-dark-400 text-xs mb-1">{label}</div>
+                <div className="text-white font-bold">{val || '—'}<span className="text-dark-500 text-xs ml-0.5">{val ? unit : ''}</span></div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-4">
+            <p className="text-dark-400 text-sm">No custom targets set yet.</p>
+            <button onClick={() => setShowNutrTargets(true)} className="mt-2 text-brand-400 hover:text-brand-300 text-sm">Set custom targets →</button>
+          </div>
+        )}
+      </Section>
+
+      {/* Weekly Check-ins */}
+      <Section title="Weekly check-ins" icon={ClipboardCheck} iconColor="text-purple-400">
+        {checkIns.length === 0 ? (
+          <p className="text-dark-400 text-sm text-center py-4">No check-ins submitted yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {checkIns.slice(0, 4).map((ci) => {
+              const metrics = [
+                { label: 'Energy', val: ci.energy },
+                { label: 'Sleep', val: ci.sleep_quality },
+                { label: 'Soreness', val: ci.soreness },
+                { label: 'Motivation', val: ci.motivation },
+              ]
+              const avg = metrics.filter((m) => m.val).reduce((s, m) => s + m.val, 0) / metrics.filter((m) => m.val).length
+              const statusColor = avg >= 7 ? 'text-green-400' : avg >= 5 ? 'text-yellow-400' : 'text-red-400'
+              return (
+                <div key={ci.id} className="bg-dark-900 rounded-xl border border-dark-700 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white text-sm font-medium">
+                      Week of {format(parseISO(ci.week_start), 'MMM d')}
+                    </span>
+                    <span className={`text-xs font-bold ${statusColor}`}>avg {avg.toFixed(1)}/10</span>
+                  </div>
+                  <div className="flex gap-3 mb-2">
+                    {metrics.filter((m) => m.val).map((m) => (
+                      <div key={m.label} className="text-center">
+                        <div className="text-dark-500 text-xs">{m.label}</div>
+                        <div className={`font-bold text-sm ${m.val >= 7 ? 'text-green-400' : m.val >= 5 ? 'text-yellow-400' : 'text-red-400'}`}>{m.val}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {ci.notes && <p className="text-dark-300 text-xs italic mb-2">"{ci.notes}"</p>}
+                  {ci.coach_reply ? (
+                    <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg px-3 py-2">
+                      <span className="text-purple-400 text-xs font-semibold">Your reply: </span>
+                      <span className="text-dark-300 text-xs">{ci.coach_reply}</span>
+                    </div>
+                  ) : replyingTo === ci.id ? (
+                    <div className="flex gap-2 mt-2">
+                      <input value={replyText} onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Reply to this check-in…"
+                        className="flex-1 bg-dark-800 border border-dark-600 rounded-lg px-3 py-1.5 text-white text-xs placeholder-dark-500 focus:outline-none focus:border-brand-500" />
+                      <button onClick={() => submitReply(ci)} disabled={replySaving || !replyText.trim()}
+                        className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs disabled:opacity-50">Reply</button>
+                      <button onClick={() => setReplyingTo(null)} className="text-dark-400 hover:text-white text-xs px-2">Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setReplyingTo(ci.id); setReplyText('') }}
+                      className="text-xs text-purple-400 hover:text-purple-300 mt-1">Reply →</button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </Section>

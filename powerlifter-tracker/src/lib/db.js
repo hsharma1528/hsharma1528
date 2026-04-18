@@ -358,3 +358,144 @@ export async function getUnreadCount(userId) {
   if (error) throw error
   return count ?? 0
 }
+
+// ── Personal Records ───────────────────────────────────────────────
+
+export async function getPersonalRecords(userId) {
+  const { data, error } = await supabase
+    .from('personal_records')
+    .select('*')
+    .eq('user_id', userId)
+    .order('exercise_name', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function upsertPersonalRecord(record) {
+  // record: { user_id, exercise_name, rep_count, weight, workout_id, achieved_date }
+  const { data, error } = await supabase
+    .from('personal_records')
+    .upsert(record, { onConflict: 'user_id,exercise_name,rep_count' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function checkAndUpsertPR(userId, exerciseName, repCount, weight, workoutId, date) {
+  // Returns { isPR: bool, record } — only upserts if this is a new best
+  const { data: existing } = await supabase
+    .from('personal_records')
+    .select('weight')
+    .eq('user_id', userId)
+    .eq('exercise_name', exerciseName)
+    .eq('rep_count', repCount)
+    .maybeSingle()
+
+  if (existing && existing.weight >= weight) return { isPR: false, record: existing }
+
+  const record = await upsertPersonalRecord({
+    user_id: userId, exercise_name: exerciseName, rep_count: repCount,
+    weight, workout_id: workoutId, achieved_date: date,
+  })
+  return { isPR: true, record }
+}
+
+// ── Workout Comments ───────────────────────────────────────────────
+
+export async function getWorkoutComments(workoutId) {
+  const { data, error } = await supabase
+    .from('workout_comments')
+    .select('*, author:author_id(id, name, username, role)')
+    .eq('workout_id', workoutId)
+    .order('created_at', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function addWorkoutComment(workoutId, authorId, body) {
+  const { data, error } = await supabase
+    .from('workout_comments')
+    .insert({ workout_id: workoutId, author_id: authorId, body })
+    .select('*, author:author_id(id, name, username, role)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteWorkoutComment(commentId) {
+  const { error } = await supabase
+    .from('workout_comments')
+    .delete()
+    .eq('id', commentId)
+  if (error) throw error
+}
+
+// ── Check-ins ──────────────────────────────────────────────────────
+
+export async function upsertCheckIn(checkIn) {
+  // checkIn: { user_id, week_start, energy, sleep_quality, soreness, motivation, notes }
+  const { data, error } = await supabase
+    .from('check_ins')
+    .upsert(checkIn, { onConflict: 'user_id,week_start' })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getCheckIns(userId, limit = 12) {
+  const { data, error } = await supabase
+    .from('check_ins')
+    .select('*')
+    .eq('user_id', userId)
+    .order('week_start', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getLatestCheckIn(userId) {
+  const { data, error } = await supabase
+    .from('check_ins')
+    .select('*')
+    .eq('user_id', userId)
+    .order('week_start', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function updateCheckInReply(checkInId, coachReply) {
+  const { error } = await supabase
+    .from('check_ins')
+    .update({ coach_reply: coachReply })
+    .eq('id', checkInId)
+  if (error) throw error
+}
+
+// ── Coach Nutrition Targets ────────────────────────────────────────
+
+export async function setMenteeNutritionTargets(coachId, athleteId, targets) {
+  // targets: { custom_calories, custom_protein, custom_carbs, custom_fat }
+  const { error } = await supabase
+    .from('coach_enrollments')
+    .update(targets)
+    .eq('coach_id', coachId)
+    .eq('athlete_id', athleteId)
+    .eq('status', 'accepted')
+  if (error) throw error
+}
+
+export async function getMenteeEnrollment(coachId, athleteId) {
+  const { data, error } = await supabase
+    .from('coach_enrollments')
+    .select('*')
+    .eq('coach_id', coachId)
+    .eq('athlete_id', athleteId)
+    .eq('status', 'accepted')
+    .maybeSingle()
+  if (error) throw error
+  return data
+}

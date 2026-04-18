@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { format, differenceInDays, parseISO, subDays } from 'date-fns'
+import { format, differenceInDays, parseISO, subDays, startOfWeek } from 'date-fns'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { Dumbbell, Apple, TrendingUp, Target, Flame, Droplets, Calendar, ChevronRight, Scale } from 'lucide-react'
+import { Dumbbell, Apple, TrendingUp, Target, Flame, Droplets, Calendar, ChevronRight, Scale, ClipboardCheck } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getWorkouts, getNutritionByDate, getWeightLog } from '../../lib/db'
+import { getWorkouts, getNutritionByDate, getWeightLog, getLatestCheckIn } from '../../lib/db'
 import { phaseColors, phaseLabels, calcDOTS } from '../../utils/calculations'
 import CoachDashboard from './CoachDashboard'
 
@@ -76,21 +76,26 @@ export default function Dashboard() {
   const [todayNutrition, setTodayNutrition] = useState(null)
   const [weightLog,      setWeightLog]      = useState([])
   const [loading,        setLoading]        = useState(true)
+  const [checkInMissing, setCheckInMissing] = useState(false)
+
+  const thisWeekStart = format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')
 
   useEffect(() => {
     let active = true
     async function load() {
       setLoading(true)
       try {
-        const [w, n, wl] = await Promise.all([
+        const [w, n, wl, lastCI] = await Promise.all([
           getWorkouts(currentUser.id),
           getNutritionByDate(currentUser.id, today),
           getWeightLog(currentUser.id),
+          getLatestCheckIn(currentUser.id),
         ])
         if (!active) return
         setWorkouts(w)
         setTodayNutrition(n)
         setWeightLog(wl)
+        setCheckInMissing(!lastCI || lastCI.week_start < thisWeekStart)
       } finally {
         if (active) setLoading(false)
       }
@@ -183,6 +188,21 @@ export default function Dashboard() {
           <span className={`text-sm font-semibold ${pc.text}`}>{phaseLabels[phase]}</span>
         </div>
       </div>
+
+      {/* Check-in reminder */}
+      {!loading && checkInMissing && (
+        <Link to="/checkin"
+          className="flex items-center gap-4 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-4 hover:border-purple-500/50 transition-colors">
+          <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+            <ClipboardCheck className="w-5 h-5 text-purple-400" />
+          </div>
+          <div className="flex-1">
+            <div className="text-white font-semibold text-sm">Weekly check-in due</div>
+            <div className="text-purple-400/70 text-xs">Let your coach know how you're feeling this week</div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-purple-400 shrink-0" />
+        </Link>
+      )}
 
       {/* Meet countdown */}
       {meetDays !== null && (
