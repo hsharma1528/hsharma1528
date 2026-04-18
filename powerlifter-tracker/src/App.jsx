@@ -17,7 +17,11 @@ import PlanBuilder from './components/WorkoutPlan/PlanBuilder'
 import PlanView from './components/WorkoutPlan/PlanView'
 import PRBoard from './components/PRs/PRBoard'
 import CheckInForm from './components/CheckIn/CheckInForm'
-import TemplateLibrary from './components/Templates/TemplateLibrary'
+import TemplateLibrary  from './components/Templates/TemplateLibrary'
+import CoachAnalytics   from './components/Analytics/CoachAnalytics'
+import ExerciseLibrary  from './components/Exercises/ExerciseLibrary'
+import MessagingPage    from './components/Messages/MessagingPage'
+import ProgramBrowser   from './components/Programs/ProgramBrowser'
 
 /**
  * After email confirmation Supabase redirects back here.
@@ -93,6 +97,10 @@ function AppRoutes() {
         <Route path="prs"                          element={<PRBoard />} />
         <Route path="checkin"                      element={<CheckInForm />} />
         <Route path="templates"                    element={<TemplateLibrary />} />
+        <Route path="analytics"                    element={<CoachAnalytics />} />
+        <Route path="exercises"                    element={<ExerciseLibrary />} />
+        <Route path="messages"                     element={<MessagingPage />} />
+        <Route path="programs"                     element={<ProgramBrowser />} />
         <Route path="mentee/:athleteId"            element={<MenteeDetail />} />
         <Route path="mentee/:athleteId/plan"       element={<PlanBuilder />} />
         <Route path="mentee/:athleteId/plan/:planId"      element={<PlanBuilder />} />

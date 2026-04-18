@@ -2,7 +2,8 @@ import React, { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Dumbbell, Apple, TrendingUp, User,
-  LogOut, Menu, X, ChevronRight, Users, Search, Trophy, ClipboardCheck, BookMarked
+  LogOut, Menu, X, ChevronRight, Users, Search, Trophy, ClipboardCheck, BookMarked,
+  BarChart2, MessageCircle, Globe
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { phaseColors, phaseLabels } from '../../utils/calculations'
@@ -15,6 +16,8 @@ const ATHLETE_NAV = [
   { to: '/progress',  icon: TrendingUp,      label: 'Progress' },
   { to: '/prs',       icon: Trophy,          label: 'Personal Records' },
   { to: '/checkin',   icon: ClipboardCheck,  label: 'Weekly Check-in' },
+  { to: '/programs',  icon: Globe,           label: 'Free Programs' },
+  { to: '/messages',  icon: MessageCircle,   label: 'Messages' },
   { to: '/coaches',   icon: Search,          label: 'Find a Coach' },
   { to: '/profile',   icon: User,            label: 'Profile' },
 ]
@@ -22,6 +25,9 @@ const ATHLETE_NAV = [
 const COACH_NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/templates', icon: BookMarked,      label: 'Template Library' },
+  { to: '/analytics', icon: BarChart2,       label: 'Analytics' },
+  { to: '/exercises', icon: Dumbbell,        label: 'Exercise Library' },
+  { to: '/messages',  icon: MessageCircle,   label: 'Messages' },
   { to: '/progress',  icon: TrendingUp,      label: 'Progress' },
   { to: '/profile',   icon: User,            label: 'Profile' },
 ]

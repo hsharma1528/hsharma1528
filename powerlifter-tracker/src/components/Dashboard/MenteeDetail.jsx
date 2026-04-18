@@ -4,7 +4,7 @@ import { format, parseISO } from 'date-fns'
 import {
   ArrowLeft, User, Dumbbell, Apple, Scale, ClipboardList,
   Plus, CheckCircle, Circle, Trash2, TrendingUp, MessageSquare,
-  X, ClipboardCheck, Target, Trophy, Layers, ChevronDown, ChevronUp, Edit2
+  X, ClipboardCheck, Target, Trophy, Layers, ChevronDown, ChevronUp, Edit2, Printer
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import {
@@ -138,6 +138,59 @@ function BlockCard({ block, plans, planDones, profile, prs, athleteId, onToggleA
     }
   })
 
+  const handlePrint = () => {
+    const athleteName = profile?.name || profile?.username || 'Athlete'
+    const totalDays = plans.reduce((n, p) => n + (p.days || []).length, 0)
+    const completedDays = plans.reduce((n, p) => {
+      const done = planDones[p.id] || new Set()
+      return n + done.size
+    }, 0)
+    const compliance = totalDays > 0 ? Math.round((completedDays / totalDays) * 100) : null
+    const unit = profile?.weight_unit || 'kg'
+    const bw = blockWeight(block)
+
+    const html = `<!DOCTYPE html>
+<html><head><title>Block Report – ${block.label}</title>
+<style>
+  body { font-family: system-ui, sans-serif; color: #111; padding: 32px; max-width: 700px; margin: auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 24px; }
+  h2 { font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 24px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 6px 8px; text-align: left; border-bottom: 1px solid #f0f0f0; }
+  th { color: #666; font-weight: 500; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; background: #f0f0f0; }
+</style></head><body>
+<h1>${block.label}</h1>
+<div class="sub">${athleteName} &nbsp;·&nbsp; ${block.start_date || ''}${block.end_date ? ' → ' + block.end_date : ''}</div>
+
+${(block.goal_squat || block.goal_bench || block.goal_deadlift || bw) ? `
+<h2>Goals &amp; Progress</h2>
+<table><thead><tr><th>Metric</th><th>Goal</th><th>Current</th></tr></thead><tbody>
+${block.goal_squat    ? `<tr><td>Squat 1RM</td><td>${block.goal_squat} ${unit}</td><td>${pr1RMs.squat ?? '—'} ${unit}</td></tr>` : ''}
+${block.goal_bench    ? `<tr><td>Bench 1RM</td><td>${block.goal_bench} ${unit}</td><td>${pr1RMs.bench ?? '—'} ${unit}</td></tr>` : ''}
+${block.goal_deadlift ? `<tr><td>Deadlift 1RM</td><td>${block.goal_deadlift} ${unit}</td><td>${pr1RMs.deadlift ?? '—'} ${unit}</td></tr>` : ''}
+${bw?.start != null   ? `<tr><td>Body weight</td><td>${block.goal_bodyweight ? block.goal_bodyweight + ' ' + unit : '—'}</td><td>${bw.start} → ${bw.end ?? bw.start} ${unit}${weightDelta != null ? ' (' + (parseFloat(weightDelta) > 0 ? '+' : '') + weightDelta + ')' : ''}</td></tr>` : ''}
+</tbody></table>` : ''}
+
+<h2>Compliance</h2>
+<p>${completedDays} / ${totalDays} days completed${compliance != null ? ' — ' + compliance + '%' : ''}</p>
+
+<h2>Weekly Plans</h2>
+<table><thead><tr><th>Plan</th><th>Week</th><th>Days done</th></tr></thead><tbody>
+${plans.map((p) => {
+  const done = planDones[p.id] || new Set()
+  return `<tr><td>${p.title}</td><td>${p.week_start || ''}</td><td>${done.size} / ${(p.days || []).length}</td></tr>`
+}).join('')}
+</tbody></table>
+
+<p style="color:#999;font-size:11px;margin-top:32px">Generated ${new Date().toLocaleDateString()} · PowerTrack</p>
+</body></html>`
+
+    const w = window.open('about:blank', '_blank')
+    if (w) { w.document.write(html); w.document.close(); w.print() }
+  }
+
   const LiftGoalBar = ({ label, goal, current }) => {
     if (!goal) return null
     const pct = current ? Math.min(100, Math.round((current / goal) * 100)) : 0
@@ -167,8 +220,13 @@ function BlockCard({ block, plans, planDones, profile, prs, athleteId, onToggleA
           )}
           {expanded ? <ChevronUp className="w-4 h-4 text-dark-400 ml-auto shrink-0" /> : <ChevronDown className="w-4 h-4 text-dark-400 ml-auto shrink-0" />}
         </button>
+        <button onClick={handlePrint}
+          className="text-dark-500 hover:text-brand-400 p-1 transition-colors ml-1 shrink-0"
+          title="Print block report">
+          <Printer className="w-3.5 h-3.5" />
+        </button>
         <button onClick={() => onDeleteBlock(block.id)}
-          className="text-dark-500 hover:text-red-400 p-1 transition-colors ml-2 shrink-0">
+          className="text-dark-500 hover:text-red-400 p-1 transition-colors ml-1 shrink-0">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
