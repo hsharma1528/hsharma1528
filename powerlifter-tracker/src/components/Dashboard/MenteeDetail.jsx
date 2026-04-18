@@ -4,7 +4,7 @@ import { format, parseISO } from 'date-fns'
 import {
   ArrowLeft, User, Dumbbell, Apple, Scale, ClipboardList,
   Plus, CheckCircle, Circle, Trash2, TrendingUp, MessageSquare,
-  X, ClipboardCheck, Target, Trophy
+  X, ClipboardCheck, Target, Trophy, Layers, ChevronDown, ChevronUp, Edit2
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import {
@@ -12,6 +12,7 @@ import {
   getWorkoutPlansForMentee, deleteWorkoutPlan, updateWorkoutPlan, getPlanWorkouts,
   getWorkoutComments, addWorkoutComment, getCheckIns, updateCheckInReply,
   setMenteeNutritionTargets, getMenteeEnrollment, getPersonalRecords,
+  getTrainingBlocks, deleteTrainingBlock,
 } from '../../lib/db'
 import { calcDOTS, phaseLabels, phaseColors } from '../../utils/calculations'
 
@@ -73,6 +74,191 @@ function ComplianceRow({ day, dayIndex, completed }) {
   )
 }
 
+function PlanCard({ plan, done, profile, athleteId, onToggleActive, onDeletePlan }) {
+  const total     = (plan.days || []).length
+  const completed = done.size
+  const pct       = total > 0 ? Math.round((completed / total) * 100) : 0
+  return (
+    <div className="border border-dark-700 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between p-3 bg-dark-900">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-white text-sm font-medium">{plan.title}</span>
+            {plan.is_active && (
+              <span className="text-xs bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded px-1.5 py-0.5">Active</span>
+            )}
+          </div>
+          <div className="text-dark-400 text-xs mt-0.5">
+            {plan.week_start ? `Week of ${format(parseISO(plan.week_start), 'MMM d')}` : ''}
+            {' · '}{completed}/{total} days logged ({pct}%)
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => onToggleActive(plan)}
+            className="text-xs text-dark-400 hover:text-white border border-dark-600 rounded-lg px-2 py-1 transition-colors">
+            {plan.is_active ? 'Deactivate' : 'Activate'}
+          </button>
+          <Link to={`/mentee/${athleteId}/plan/${plan.id}/view`}
+            className="text-xs text-dark-300 hover:text-white border border-dark-600 rounded-lg px-2 py-1 transition-colors">
+            View
+          </Link>
+          <Link to={`/mentee/${athleteId}/plan/${plan.id}`}
+            className="text-xs text-brand-400 hover:text-brand-300 border border-brand-500/20 rounded-lg px-2 py-1 transition-colors">
+            Edit
+          </Link>
+          <button onClick={() => onDeletePlan(plan.id)}
+            className="text-dark-500 hover:text-red-400 p-1 transition-colors">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      {(plan.days || []).length > 0 && (
+        <div className="p-3 space-y-1.5">
+          {plan.days.map((day, idx) => (
+            <ComplianceRow key={day.id || idx} day={day} dayIndex={idx} completed={done.has(idx)} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BlockCard({ block, plans, planDones, profile, prs, athleteId, onToggleActive, onDeletePlan, onDeleteBlock, blockWeight }) {
+  const [expanded, setExpanded] = useState(true)
+  const unit   = profile?.weight_unit || 'kg'
+  const bw     = blockWeight(block)
+  const weightDelta = bw?.start != null && bw?.end != null ? (bw.end - bw.start).toFixed(1) : null
+
+  const pr1RMs = { squat: null, bench: null, deadlift: null }
+  ;(prs || []).forEach((r) => {
+    if (r.rep_count === 1) {
+      if (/squat/i.test(r.exercise_name))    pr1RMs.squat    = r.weight
+      if (/bench/i.test(r.exercise_name))    pr1RMs.bench    = r.weight
+      if (/deadlift/i.test(r.exercise_name)) pr1RMs.deadlift = r.weight
+    }
+  })
+
+  const LiftGoalBar = ({ label, goal, current }) => {
+    if (!goal) return null
+    const pct = current ? Math.min(100, Math.round((current / goal) * 100)) : 0
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-dark-400 text-xs w-7">{label}</span>
+        <div className="flex-1 h-1.5 bg-dark-700 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full ${pct >= 100 ? 'bg-green-500' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} />
+        </div>
+        <span className="text-dark-400 text-xs w-24 text-right shrink-0">
+          {current ?? '—'} / {goal} {unit}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="border border-brand-500/20 rounded-xl overflow-hidden bg-brand-500/5">
+      <div className="flex items-center justify-between p-3">
+        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+          <Layers className="w-4 h-4 text-brand-400 shrink-0" />
+          <span className="text-white font-semibold text-sm truncate">{block.label}</span>
+          {block.start_date && (
+            <span className="text-dark-400 text-xs shrink-0">
+              {block.start_date}{block.end_date ? ` → ${block.end_date}` : ''}
+            </span>
+          )}
+          {expanded ? <ChevronUp className="w-4 h-4 text-dark-400 ml-auto shrink-0" /> : <ChevronDown className="w-4 h-4 text-dark-400 ml-auto shrink-0" />}
+        </button>
+        <button onClick={() => onDeleteBlock(block.id)}
+          className="text-dark-500 hover:text-red-400 p-1 transition-colors ml-2 shrink-0">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t border-brand-500/10">
+          {/* Goals + weight delta */}
+          {(block.goal_squat || block.goal_bench || block.goal_deadlift || bw) && (
+            <div className="mt-3 bg-dark-800 rounded-xl p-3 space-y-2">
+              {bw?.start != null && (
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-dark-400">Body weight</span>
+                  <span className="text-white">
+                    {bw.start} → {bw.end ?? bw.start} {unit}
+                    {weightDelta != null && (
+                      <span className={` ml-1 ${parseFloat(weightDelta) < 0 ? 'text-blue-400' : parseFloat(weightDelta) > 0 ? 'text-orange-400' : 'text-dark-400'}`}>
+                        ({parseFloat(weightDelta) > 0 ? '+' : ''}{weightDelta} {unit})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+              <LiftGoalBar label="SQ" goal={block.goal_squat}    current={pr1RMs.squat} />
+              <LiftGoalBar label="BP" goal={block.goal_bench}    current={pr1RMs.bench} />
+              <LiftGoalBar label="DL" goal={block.goal_deadlift} current={pr1RMs.deadlift} />
+              {block.goal_notes && <p className="text-dark-400 text-xs italic mt-1">{block.goal_notes}</p>}
+            </div>
+          )}
+
+          {/* Plans in block */}
+          <div className="space-y-2">
+            {plans.map((plan) => (
+              <PlanCard key={plan.id} plan={plan} done={planDones[plan.id] || new Set()}
+                profile={profile} athleteId={athleteId}
+                onToggleActive={onToggleActive} onDeletePlan={onDeletePlan} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BlockGroupedPlans({ plans, blocks, planDones, profile, prs, athleteId, onToggleActive, onDeletePlan, onDeleteBlock, blockWeight }) {
+  const blockMap = {}
+  blocks.forEach((b) => { blockMap[b.id] = [] })
+  const uncategorised = []
+  plans.forEach((plan) => {
+    if (plan.block_id && blockMap[plan.block_id]) {
+      blockMap[plan.block_id].push(plan)
+    } else {
+      uncategorised.push(plan)
+    }
+  })
+
+  return (
+    <div className="space-y-4">
+      {blocks.map((block) => (
+        blockMap[block.id]?.length > 0 ? (
+          <BlockCard
+            key={block.id}
+            block={block}
+            plans={blockMap[block.id]}
+            planDones={planDones}
+            profile={profile}
+            prs={prs}
+            athleteId={athleteId}
+            onToggleActive={onToggleActive}
+            onDeletePlan={onDeletePlan}
+            onDeleteBlock={onDeleteBlock}
+            blockWeight={blockWeight}
+          />
+        ) : null
+      ))}
+      {uncategorised.length > 0 && (
+        <div className="space-y-2">
+          {blocks.length > 0 && (
+            <div className="text-dark-500 text-xs px-1 font-medium">Uncategorised</div>
+          )}
+          {uncategorised.map((plan) => (
+            <PlanCard key={plan.id} plan={plan} done={planDones[plan.id] || new Set()}
+              profile={profile} athleteId={athleteId}
+              onToggleActive={onToggleActive} onDeletePlan={onDeletePlan} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function MenteeDetail() {
   const { athleteId } = useParams()
   const { currentUser } = useApp()
@@ -87,6 +273,7 @@ export default function MenteeDetail() {
   const [checkIns,   setCheckIns]   = useState([])
   const [prs,        setPrs]        = useState([])
   const [enrollment, setEnrollment] = useState(null)
+  const [blocks,     setBlocks]     = useState([])
   const [loading,    setLoading]    = useState(true)
   // Comments panel
   const [commentsWorkout, setCommentsWorkout] = useState(null)
@@ -105,7 +292,7 @@ export default function MenteeDetail() {
   async function loadAll() {
     setLoading(true)
     try {
-      const [prof, ws, nut, wl, pls, cis, prData, enroll] = await Promise.all([
+      const [prof, ws, nut, wl, pls, cis, prData, enroll, blks] = await Promise.all([
         getMenteeProfile(athleteId),
         getMenteeWorkouts(athleteId),
         getMenteeNutrition(athleteId),
@@ -114,6 +301,7 @@ export default function MenteeDetail() {
         getCheckIns(athleteId, 8),
         getPersonalRecords(athleteId).catch(() => []),
         getMenteeEnrollment(currentUser.id, athleteId).catch(() => null),
+        getTrainingBlocks(currentUser.id, athleteId).catch(() => []),
       ])
       setProfile(prof)
       setWorkouts(ws)
@@ -123,6 +311,7 @@ export default function MenteeDetail() {
       setCheckIns(cis)
       setPrs(prData)
       setEnrollment(enroll)
+      setBlocks(blks)
       if (enroll) {
         setNutrForm({
           custom_calories: enroll.custom_calories || '',
@@ -207,6 +396,24 @@ export default function MenteeDetail() {
   const handleToggleActive = async (plan) => {
     await updateWorkoutPlan(plan.id, { is_active: !plan.is_active })
     setPlans((ps) => ps.map((p) => p.id === plan.id ? { ...p, is_active: !p.is_active } : p))
+  }
+
+  const handleDeleteBlock = async (blockId) => {
+    if (!confirm('Delete this block? Plans inside will become uncategorised.')) return
+    await deleteTrainingBlock(blockId)
+    setBlocks((bs) => bs.filter((b) => b.id !== blockId))
+  }
+
+  // Derive start/end weight for a block from the weight log
+  const blockWeight = (block) => {
+    if (!block.start_date || weightLog.length === 0) return null
+    const sorted = [...weightLog].sort((a, b) => a.date.localeCompare(b.date))
+    const startEntry = sorted.find((e) => e.date >= block.start_date)
+    const endDate = block.end_date || new Date().toISOString().split('T')[0]
+    const endCandidates = sorted.filter((e) => e.date <= endDate)
+    const endEntry = endCandidates[endCandidates.length - 1]
+    if (!startEntry) return null
+    return { start: startEntry.weight, end: endEntry?.weight ?? null }
   }
 
   if (loading) return (
@@ -346,7 +553,7 @@ export default function MenteeDetail() {
         </div>
       </Section>
 
-      {/* Training Plans */}
+      {/* Training Plans — block-grouped */}
       <Section
         title="Training plans"
         icon={ClipboardList}
@@ -367,58 +574,18 @@ export default function MenteeDetail() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-4">
-            {plans.map((plan) => {
-              const done = planDones[plan.id] || new Set()
-              const total = (plan.days || []).length
-              const completed = done.size
-              const pct = total > 0 ? Math.round((completed / total) * 100) : 0
-              return (
-                <div key={plan.id} className="border border-dark-700 rounded-xl overflow-hidden">
-                  <div className="flex items-center justify-between p-3 bg-dark-900">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-white text-sm font-medium">{plan.title}</span>
-                        {plan.is_active && (
-                          <span className="text-xs bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded px-1.5 py-0.5">Active</span>
-                        )}
-                      </div>
-                      <div className="text-dark-400 text-xs mt-0.5">
-                        {plan.week_start ? `Week of ${format(parseISO(plan.week_start), 'MMM d')}` : ''}
-                        {' · '}{completed}/{total} days logged ({pct}%)
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleToggleActive(plan)}
-                        className="text-xs text-dark-400 hover:text-white border border-dark-600 rounded-lg px-2 py-1 transition-colors">
-                        {plan.is_active ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <Link to={`/mentee/${athleteId}/plan/${plan.id}/view`}
-                        className="text-xs text-dark-300 hover:text-white border border-dark-600 rounded-lg px-2 py-1 transition-colors">
-                        View
-                      </Link>
-                      <Link to={`/mentee/${athleteId}/plan/${plan.id}`}
-                        className="text-xs text-brand-400 hover:text-brand-300 border border-brand-500/20 rounded-lg px-2 py-1 transition-colors">
-                        Edit
-                      </Link>
-                      <button onClick={() => handleDeletePlan(plan.id)}
-                        className="text-dark-500 hover:text-red-400 p-1 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                  {/* Compliance per day */}
-                  {(plan.days || []).length > 0 && (
-                    <div className="p-3 space-y-1.5">
-                      {plan.days.map((day, idx) => (
-                        <ComplianceRow key={day.id || idx} day={day} dayIndex={idx} completed={done.has(idx)} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+          <BlockGroupedPlans
+            plans={plans}
+            blocks={blocks}
+            planDones={planDones}
+            profile={profile}
+            prs={prs}
+            athleteId={athleteId}
+            onToggleActive={handleToggleActive}
+            onDeletePlan={handleDeletePlan}
+            onDeleteBlock={handleDeleteBlock}
+            blockWeight={blockWeight}
+          />
         )}
       </Section>
 

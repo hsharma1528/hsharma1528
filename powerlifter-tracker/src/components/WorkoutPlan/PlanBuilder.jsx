@@ -2,10 +2,14 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { v4 as uuidv4 } from 'uuid'
 import {
-  Plus, Trash2, Save, X, ChevronDown, ChevronUp, ArrowLeft, GripVertical
+  Plus, Trash2, Save, X, ChevronDown, ChevronUp, ArrowLeft, GripVertical,
+  BookMarked, ChevronRight, Layers
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { createWorkoutPlan, updateWorkoutPlan, getPlan, getMenteeProfile, createNotification } from '../../lib/db'
+import {
+  createWorkoutPlan, updateWorkoutPlan, getPlan, getMenteeProfile, createNotification,
+  getTrainingBlocks, createTrainingBlock, createTemplate,
+} from '../../lib/db'
 import ExercisePicker, { CATEGORY_COLORS } from '../Workout/ExercisePicker'
 
 const inputCls = "w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-2.5 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors text-sm"
@@ -112,6 +116,144 @@ const newDay = () => ({
   exercises: [],
 })
 
+// ── Save as Template modal ──────────────────────────────────────────
+function SaveTemplateModal({ days, title, coachId, onClose }) {
+  const [tTitle, setTTitle]   = useState(title)
+  const [desc, setDesc]       = useState('')
+  const [tags, setTags]       = useState('')
+  const [saving, setSaving]   = useState(false)
+  const [done, setDone]       = useState(false)
+
+  const handleSave = async () => {
+    if (!tTitle.trim()) return
+    setSaving(true)
+    try {
+      await createTemplate({
+        coach_id:    coachId,
+        title:       tTitle.trim(),
+        description: desc.trim() || null,
+        tags:        tags.split(',').map((t) => t.trim()).filter(Boolean),
+        days,
+        is_system:   false,
+      })
+      setDone(true)
+      setTimeout(onClose, 1200)
+    } catch (err) {
+      alert('Failed to save template: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-dark-950/60" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-dark-800 border border-dark-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-white font-semibold flex items-center gap-2">
+              <BookMarked className="w-4 h-4 text-brand-400" />Save as template
+            </h3>
+            <button onClick={onClose} className="text-dark-400 hover:text-white p-1"><X className="w-4 h-4" /></button>
+          </div>
+          {done ? (
+            <p className="text-green-400 text-sm text-center py-4">Template saved!</p>
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-dark-400 text-xs mb-1">Template name</label>
+                <input value={tTitle} onChange={(e) => setTTitle(e.target.value)} className={inputCls} placeholder="e.g. Hypertrophy Block A" />
+              </div>
+              <div>
+                <label className="block text-dark-400 text-xs mb-1">Description (optional)</label>
+                <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={2}
+                  className={inputCls + ' resize-none'} placeholder="Brief description…" />
+              </div>
+              <div>
+                <label className="block text-dark-400 text-xs mb-1">Tags (comma-separated)</label>
+                <input value={tags} onChange={(e) => setTags(e.target.value)} className={inputCls} placeholder="strength, 4-day, meet-prep" />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 bg-dark-700 hover:bg-dark-600 text-dark-200 font-semibold py-2.5 rounded-xl text-sm">Cancel</button>
+                <button onClick={handleSave} disabled={saving || !tTitle.trim()}
+                  className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50">
+                  {saving ? 'Saving…' : 'Save template'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── New block inline form ───────────────────────────────────────────
+function NewBlockForm({ onSave, onCancel, unit }) {
+  const [label,   setLabel]   = useState('')
+  const [startD,  setStartD]  = useState('')
+  const [endD,    setEndD]    = useState('')
+  const [gSq,     setGSq]     = useState('')
+  const [gBn,     setGBn]     = useState('')
+  const [gDl,     setGDl]     = useState('')
+  const [gBw,     setGBw]     = useState('')
+  const [notes,   setNotes]   = useState('')
+
+  return (
+    <div className="bg-dark-900 border border-brand-500/30 rounded-xl p-4 space-y-3">
+      <div>
+        <label className="block text-dark-400 text-xs mb-1">Block label <span className="text-red-400">*</span></label>
+        <input value={label} onChange={(e) => setLabel(e.target.value)} className={inputCls} placeholder="e.g. Block 1 – Hypertrophy" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-dark-400 text-xs mb-1">Start date</label>
+          <input type="date" value={startD} onChange={(e) => setStartD(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className="block text-dark-400 text-xs mb-1">End date</label>
+          <input type="date" value={endD} onChange={(e) => setEndD(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+      <div>
+        <label className="block text-dark-400 text-xs mb-1">Lift goals ({unit})</label>
+        <div className="grid grid-cols-3 gap-2">
+          <input type="number" value={gSq} onChange={(e) => setGSq(e.target.value)} className={inputCls} placeholder="Squat" min="0" />
+          <input type="number" value={gBn} onChange={(e) => setGBn(e.target.value)} className={inputCls} placeholder="Bench" min="0" />
+          <input type="number" value={gDl} onChange={(e) => setGDl(e.target.value)} className={inputCls} placeholder="Deadlift" min="0" />
+        </div>
+      </div>
+      <div>
+        <label className="block text-dark-400 text-xs mb-1">Target body weight ({unit})</label>
+        <input type="number" value={gBw} onChange={(e) => setGBw(e.target.value)} className={inputCls} placeholder="e.g. 83.5" min="0" step="0.1" />
+      </div>
+      <div>
+        <label className="block text-dark-400 text-xs mb-1">Notes</label>
+        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
+          className={inputCls + ' resize-none'} placeholder="Block goals, focus, notes…" />
+      </div>
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 bg-dark-700 hover:bg-dark-600 text-dark-200 py-2 rounded-xl text-sm">Cancel</button>
+        <button
+          onClick={() => onSave({
+            label: label.trim(),
+            start_date:      startD || null,
+            end_date:        endD   || null,
+            goal_squat:      gSq   ? parseFloat(gSq)  : null,
+            goal_bench:      gBn   ? parseFloat(gBn)  : null,
+            goal_deadlift:   gDl   ? parseFloat(gDl)  : null,
+            goal_bodyweight: gBw   ? parseFloat(gBw)  : null,
+            goal_notes:      notes.trim() || null,
+          })}
+          disabled={!label.trim()}
+          className="flex-1 bg-brand-600 hover:bg-brand-500 text-white font-semibold py-2 rounded-xl text-sm disabled:opacity-50">
+          Create block
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function PlanBuilder() {
   const { athleteId, planId } = useParams()
   const { currentUser } = useApp()
@@ -121,7 +263,7 @@ export default function PlanBuilder() {
   const [title,      setTitle]      = useState('Weekly Training Plan')
   const [weekStart,  setWeekStart]  = useState(() => {
     const d = new Date()
-    d.setDate(d.getDate() - d.getDay() + 1) // Monday
+    d.setDate(d.getDate() - d.getDay() + 1)
     return d.toISOString().split('T')[0]
   })
   const [isActive,   setIsActive]   = useState(true)
@@ -129,18 +271,30 @@ export default function PlanBuilder() {
   const [saving,     setSaving]     = useState(false)
   const [loadingPlan, setLoadingPlan] = useState(!!planId)
 
+  // Block state
+  const [blocks,       setBlocks]       = useState([])
+  const [selectedBlock, setSelectedBlock] = useState('none')
+  const [showNewBlock,  setShowNewBlock]  = useState(false)
+  const [creatingBlock, setCreatingBlock] = useState(false)
+
+  // Save as template modal
+  const [showTplModal, setShowTplModal] = useState(false)
+
   useEffect(() => {
     async function load() {
-      const [prof, plan] = await Promise.all([
+      const [prof, plan, blks] = await Promise.all([
         getMenteeProfile(athleteId),
         planId ? getPlan(planId) : Promise.resolve(null),
+        getTrainingBlocks(currentUser.id, athleteId).catch(() => []),
       ])
       setAthlete(prof)
+      setBlocks(blks)
       if (plan) {
         setTitle(plan.title)
         setWeekStart(plan.week_start)
         setIsActive(plan.is_active)
         setDays(plan.days?.length ? plan.days : [newDay()])
+        if (plan.block_id) setSelectedBlock(plan.block_id)
       }
       setLoadingPlan(false)
     }
@@ -150,11 +304,30 @@ export default function PlanBuilder() {
   const updateDay = (idx, updated) => setDays((ds) => ds.map((d, i) => i === idx ? updated : d))
   const removeDay = (idx) => setDays((ds) => ds.filter((_, i) => i !== idx))
 
+  const handleCreateBlock = async (blockData) => {
+    setCreatingBlock(true)
+    try {
+      const created = await createTrainingBlock({
+        ...blockData,
+        coach_id:   currentUser.id,
+        athlete_id: athleteId,
+      })
+      setBlocks((prev) => [created, ...prev])
+      setSelectedBlock(created.id)
+      setShowNewBlock(false)
+    } catch (err) {
+      alert('Failed to create block: ' + err.message)
+    } finally {
+      setCreatingBlock(false)
+    }
+  }
+
   const handleSave = async () => {
     if (!title.trim() || days.length === 0) return
     setSaving(true)
     try {
-      const payload = { title, week_start: weekStart, is_active: isActive, days }
+      const blockId = selectedBlock === 'none' ? null : selectedBlock
+      const payload = { title, week_start: weekStart, is_active: isActive, days, block_id: blockId }
       if (planId) {
         await updateWorkoutPlan(planId, payload)
         createNotification(athleteId, 'plan_updated', `Your training plan was updated: ${title}`, null, '/workout').catch(() => {})
@@ -176,8 +349,19 @@ export default function PlanBuilder() {
     </div>
   )
 
+  const unit = athlete?.weight_unit || 'kg'
+
   return (
     <div className="p-4 lg:p-8 max-w-2xl mx-auto space-y-6">
+      {showTplModal && (
+        <SaveTemplateModal
+          days={days}
+          title={title}
+          coachId={currentUser.id}
+          onClose={() => setShowTplModal(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => navigate(`/mentee/${athleteId}`)}
@@ -188,10 +372,16 @@ export default function PlanBuilder() {
           <h1 className="text-xl font-bold text-white">{planId ? 'Edit plan' : 'Create training plan'}</h1>
           {athlete && <p className="text-dark-400 text-xs mt-0.5">For {athlete.name || athlete.username}</p>}
         </div>
-        <button onClick={handleSave} disabled={saving || !title.trim() || days.length === 0}
-          className="ml-auto flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 text-sm">
-          <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save plan'}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setShowTplModal(true)}
+            className="flex items-center gap-1.5 text-xs text-dark-300 hover:text-brand-400 border border-dark-600 hover:border-brand-500/30 px-3 py-2 rounded-xl transition-colors">
+            <BookMarked className="w-3.5 h-3.5" />Save as template
+          </button>
+          <button onClick={handleSave} disabled={saving || !title.trim() || days.length === 0}
+            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold px-4 py-2 rounded-xl transition-colors disabled:opacity-50 text-sm">
+            <Save className="w-4 h-4" />{saving ? 'Saving…' : 'Save plan'}
+          </button>
+        </div>
       </div>
 
       {/* Plan meta */}
@@ -215,6 +405,49 @@ export default function PlanBuilder() {
               <span className="text-dark-300 text-sm">Active plan</span>
             </label>
           </div>
+        </div>
+
+        {/* Block selector */}
+        <div>
+          <label className="block text-sm font-medium text-dark-300 mb-1.5 flex items-center gap-1.5">
+            <Layers className="w-4 h-4 text-brand-400" />Training block
+          </label>
+          {!showNewBlock ? (
+            <div className="flex gap-2">
+              <select
+                value={selectedBlock}
+                onChange={(e) => {
+                  if (e.target.value === '__new__') { setShowNewBlock(true) }
+                  else { setSelectedBlock(e.target.value) }
+                }}
+                className={inputCls + ' cursor-pointer'}>
+                <option value="none">No block</option>
+                {blocks.map((b) => (
+                  <option key={b.id} value={b.id}>{b.label}</option>
+                ))}
+                <option value="__new__">＋ New block…</option>
+              </select>
+            </div>
+          ) : (
+            <NewBlockForm
+              unit={unit}
+              onSave={handleCreateBlock}
+              onCancel={() => setShowNewBlock(false)}
+            />
+          )}
+          {selectedBlock !== 'none' && !showNewBlock && (() => {
+            const b = blocks.find((x) => x.id === selectedBlock)
+            if (!b) return null
+            return (
+              <div className="mt-2 text-xs text-dark-400 flex items-center gap-2">
+                <span className="text-brand-400 font-medium">{b.label}</span>
+                {b.start_date && <span>· {b.start_date}{b.end_date ? ` → ${b.end_date}` : ''}</span>}
+                {(b.goal_squat || b.goal_bench || b.goal_deadlift) && (
+                  <span>· S{b.goal_squat || '—'} / B{b.goal_bench || '—'} / D{b.goal_deadlift || '—'} {unit}</span>
+                )}
+              </div>
+            )
+          })()}
         </div>
       </div>
 

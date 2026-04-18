@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Dumbbell, Apple, TrendingUp, User,
-  LogOut, Menu, X, ChevronRight, Users, Search, Trophy, ClipboardCheck
+  LogOut, Menu, X, ChevronRight, Users, Search, Trophy, ClipboardCheck, BookMarked
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { phaseColors, phaseLabels } from '../../utils/calculations'
@@ -21,6 +21,7 @@ const ATHLETE_NAV = [
 
 const COACH_NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/templates', icon: BookMarked,      label: 'Template Library' },
   { to: '/progress',  icon: TrendingUp,      label: 'Progress' },
   { to: '/profile',   icon: User,            label: 'Profile' },
 ]
