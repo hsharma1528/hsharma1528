@@ -311,3 +311,50 @@ export async function addWeightEntry(entry) {
     .upsert(entry, { onConflict: 'user_id,date' })
   if (error) throw error
 }
+
+// ── Notifications ─────────────────────────────────────────────────
+
+export async function createNotification(userId, type, title, body = null, link = null) {
+  const { error } = await supabase
+    .from('notifications')
+    .insert({ user_id: userId, type, title, body, link })
+  if (error) throw error
+}
+
+export async function getNotifications(userId) {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function markNotificationRead(notificationId) {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read: true })
+    .eq('id', notificationId)
+  if (error) throw error
+}
+
+export async function markAllNotificationsRead(userId) {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read: true })
+    .eq('user_id', userId)
+    .eq('read', false)
+  if (error) throw error
+}
+
+export async function getUnreadCount(userId) {
+  const { count, error } = await supabase
+    .from('notifications')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('read', false)
+  if (error) throw error
+  return count ?? 0
+}

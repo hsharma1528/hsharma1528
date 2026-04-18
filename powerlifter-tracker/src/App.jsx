@@ -14,6 +14,7 @@ import Progress from './components/Progress/Progress'
 import CoachDirectory from './components/Coaches/CoachDirectory'
 import MenteeDetail from './components/Dashboard/MenteeDetail'
 import PlanBuilder from './components/WorkoutPlan/PlanBuilder'
+import PlanView from './components/WorkoutPlan/PlanView'
 
 /**
  * After email confirmation Supabase redirects back here.
@@ -88,7 +89,8 @@ function AppRoutes() {
         <Route path="coaches"                      element={<CoachDirectory />} />
         <Route path="mentee/:athleteId"            element={<MenteeDetail />} />
         <Route path="mentee/:athleteId/plan"       element={<PlanBuilder />} />
-        <Route path="mentee/:athleteId/plan/:planId" element={<PlanBuilder />} />
+        <Route path="mentee/:athleteId/plan/:planId"      element={<PlanBuilder />} />
+        <Route path="mentee/:athleteId/plan/:planId/view" element={<PlanView />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

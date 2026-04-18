@@ -6,7 +6,7 @@ import {
   ChevronRight, Clock, Dumbbell
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getEnrollmentRequests, updateEnrollmentStatus, getMentees } from '../../lib/db'
+import { getEnrollmentRequests, updateEnrollmentStatus, getMentees, createNotification } from '../../lib/db'
 import { phaseLabels, phaseColors } from '../../utils/calculations'
 
 function StatCard({ icon: Icon, label, value, accent }) {
@@ -30,13 +30,36 @@ function StatCard({ icon: Icon, label, value, accent }) {
 }
 
 function RequestCard({ req, onAccept, onDecline }) {
+  const { currentUser } = useApp()
   const [busy, setBusy] = useState(false)
   const ath = req.athlete || {}
 
   const act = async (status) => {
     setBusy(true)
-    try { await updateEnrollmentStatus(req.id, status); onAccept(req.id, status) }
-    finally { setBusy(false) }
+    try {
+      await updateEnrollmentStatus(req.id, status)
+      onAccept(req.id, status)
+      const coachName = currentUser.name || currentUser.username
+      if (status === 'accepted') {
+        createNotification(
+          req.athlete_id,
+          'enrollment_accepted',
+          'Your coaching request was accepted!',
+          `${coachName} is now your coach.`,
+          '/profile'
+        ).catch(() => {})
+      } else {
+        createNotification(
+          req.athlete_id,
+          'enrollment_declined',
+          'Coaching request update',
+          'Your request was not accepted at this time.',
+          '/coaches'
+        ).catch(() => {})
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
   const phase = ath.phase || 'offseason'

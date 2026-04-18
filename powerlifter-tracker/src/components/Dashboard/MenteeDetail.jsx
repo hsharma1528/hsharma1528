@@ -241,6 +241,10 @@ export default function MenteeDetail() {
                         className="text-xs text-dark-400 hover:text-white border border-dark-600 rounded-lg px-2 py-1 transition-colors">
                         {plan.is_active ? 'Deactivate' : 'Activate'}
                       </button>
+                      <Link to={`/mentee/${athleteId}/plan/${plan.id}/view`}
+                        className="text-xs text-dark-300 hover:text-white border border-dark-600 rounded-lg px-2 py-1 transition-colors">
+                        View
+                      </Link>
                       <Link to={`/mentee/${athleteId}/plan/${plan.id}`}
                         className="text-xs text-brand-400 hover:text-brand-300 border border-brand-500/20 rounded-lg px-2 py-1 transition-colors">
                         Edit

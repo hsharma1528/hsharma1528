@@ -86,6 +86,7 @@ export default function Profile() {
     target_protein:  currentUser.target_protein  || '',
     target_carbs:    currentUser.target_carbs    || '',
     target_fat:      currentUser.target_fat      || '',
+    phone_number:    currentUser.phone_number    || '',
     // Coach-specific
     bio:                     currentUser.bio                     || '',
     experience_years:        currentUser.experience_years        || '',
@@ -155,6 +156,7 @@ export default function Profile() {
         coaching_phases:         form.coaching_phases,
         coaching_weight_classes: form.coaching_weight_classes,
         coaching_specialties:    form.coaching_specialties,
+        phone_number:            form.phone_number || null,
       }
       await updateProfile(currentUser.id, updates)
       dispatch({ type: 'UPDATE_USER', payload: updates })
@@ -311,6 +313,13 @@ export default function Profile() {
           <div className="col-span-2">
             <label className={labelCls}>Display name</label>
             <input value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder="Your name" />
+          </div>
+          <div className="col-span-2">
+            <label className={labelCls}>
+              Phone number <span className="text-dark-500 text-xs font-normal">(optional — for future SMS updates)</span>
+            </label>
+            <input type="tel" value={form.phone_number} onChange={(e) => set('phone_number', e.target.value)}
+              className={inputCls} placeholder="+1 555 000 0000" />
           </div>
           <div>
             <label className={labelCls}>Age</label>

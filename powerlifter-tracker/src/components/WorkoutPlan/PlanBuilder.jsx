@@ -5,7 +5,7 @@ import {
   Plus, Trash2, Save, X, ChevronDown, ChevronUp, ArrowLeft, GripVertical
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { createWorkoutPlan, updateWorkoutPlan, getPlan, getMenteeProfile } from '../../lib/db'
+import { createWorkoutPlan, updateWorkoutPlan, getPlan, getMenteeProfile, createNotification } from '../../lib/db'
 import ExercisePicker, { CATEGORY_COLORS } from '../Workout/ExercisePicker'
 
 const inputCls = "w-full bg-dark-900 border border-dark-600 rounded-xl px-4 py-2.5 text-white placeholder-dark-500 focus:outline-none focus:border-brand-500 transition-colors text-sm"
@@ -157,8 +157,10 @@ export default function PlanBuilder() {
       const payload = { title, week_start: weekStart, is_active: isActive, days }
       if (planId) {
         await updateWorkoutPlan(planId, payload)
+        createNotification(athleteId, 'plan_updated', `Your training plan was updated: ${title}`, null, '/workout').catch(() => {})
       } else {
         await createWorkoutPlan({ ...payload, coach_id: currentUser.id, athlete_id: athleteId })
+        createNotification(athleteId, 'plan_created', `New training plan assigned: ${title}`, null, '/workout').catch(() => {})
       }
       navigate(`/mentee/${athleteId}`)
     } catch (err) {

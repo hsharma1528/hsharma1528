@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
 import { phaseColors, phaseLabels } from '../../utils/calculations'
+import NotificationBell from '../Notifications/NotificationBell'
 
 const ATHLETE_NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -72,6 +73,11 @@ export default function Layout() {
 
         <BadgePill />
 
+        <div className="flex items-center justify-between mb-3 px-1">
+          <span className="text-dark-500 text-xs uppercase tracking-wider">Menu</span>
+          <NotificationBell userId={currentUser.id} />
+        </div>
+
         <nav className="flex-1 space-y-1">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} className={navLinkCls}>
@@ -112,9 +118,12 @@ export default function Layout() {
           </div>
           <span className="text-white font-bold text-lg">PowerTrack</span>
         </div>
-        <button onClick={() => setMobileOpen(!mobileOpen)} className="text-dark-300 hover:text-white transition-colors">
-          {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-        </button>
+        <div className="flex items-center gap-1">
+          <NotificationBell userId={currentUser.id} />
+          <button onClick={() => setMobileOpen(!mobileOpen)} className="text-dark-300 hover:text-white transition-colors p-1">
+            {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </button>
+        </div>
       </div>
 
       {/* ── Mobile drawer ─────────────────────────────────────────── */}

@@ -6,7 +6,7 @@ import {
   Dumbbell, Clock, ClipboardList, ChevronRight, PlayCircle
 } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getWorkouts, addWorkout, updateWorkout, deleteWorkout, getActivePlan } from '../../lib/db'
+import { getWorkouts, addWorkout, updateWorkout, deleteWorkout, getActivePlan, createNotification } from '../../lib/db'
 import { calc1RM, calcRPE1RM } from '../../utils/calculations'
 import ExercisePicker, { CATEGORY_COLORS } from './ExercisePicker'
 
@@ -212,6 +212,17 @@ export default function WorkoutLog() {
           plan_id: form.plan_id || null,
           plan_day_index: form.plan_day_index ?? null,
         })
+        if (form.plan_id && activePlan) {
+          const dayLabel = activePlan.days?.[form.plan_day_index]?.day_label || `Day ${(form.plan_day_index ?? 0) + 1}`
+          const athleteName = currentUser.name || currentUser.username
+          createNotification(
+            activePlan.coach_id,
+            'session_logged',
+            `${athleteName} logged ${dayLabel}`,
+            null,
+            `/mentee/${currentUser.id}`
+          ).catch(() => {})
+        }
       }
       await loadWorkouts()
       setShowForm(false)
