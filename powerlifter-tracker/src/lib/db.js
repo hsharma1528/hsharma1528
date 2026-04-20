@@ -898,3 +898,31 @@ export async function sendPhoneNotification(to, message, channel = 'sms') {
   if (error) throw error
   return data
 }
+
+// ── Push subscriptions (PWA Web Push) ────────────────────────────
+
+export async function savePushSubscription(userId, subscription) {
+  const { endpoint, keys } = subscription.toJSON()
+  const { error } = await supabase.from('push_subscriptions').upsert(
+    { user_id: userId, endpoint, p256dh: keys.p256dh, auth: keys.auth },
+    { onConflict: 'user_id,endpoint' },
+  )
+  if (error) throw error
+}
+
+export async function deletePushSubscription(userId, endpoint) {
+  const { error } = await supabase
+    .from('push_subscriptions')
+    .delete()
+    .eq('user_id', userId)
+    .eq('endpoint', endpoint)
+  if (error) throw error
+}
+
+export async function sendPushNotification(userId, title, body, url = '/') {
+  const { data, error } = await supabase.functions.invoke('send-push', {
+    body: { userId, title, body, url },
+  })
+  if (error) throw error
+  return data
+}
