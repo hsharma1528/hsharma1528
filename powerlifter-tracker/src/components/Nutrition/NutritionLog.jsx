@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react'
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { format, parseISO, subDays, addDays } from 'date-fns'
 import { v4 as uuidv4 } from 'uuid'
 import { Plus, Trash2, ChevronLeft, ChevronRight, X, Droplets, Flame, Search } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getNutritionByDate, saveNutritionLog } from '../../lib/db'
+import { getNutritionByDate, saveNutritionLog, getActivePlan, createNotification, sendPushNotification } from '../../lib/db'
 
 const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Pre-workout', 'Post-workout']
 
@@ -161,6 +161,14 @@ export default function NutritionLog() {
   const [log, setLog] = useState(null)
   const [water, setWater] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [coachId, setCoachId] = useState(null)
+  const notifiedTodayRef = useRef(false)
+
+  useEffect(() => {
+    getActivePlan(currentUser.id)
+      .then((plan) => { if (plan?.coach_id) setCoachId(plan.coach_id) })
+      .catch(() => {})
+  }, [currentUser.id])
 
   const isToday = selectedDate === format(new Date(), 'yyyy-MM-dd')
 
@@ -195,7 +203,18 @@ export default function NutritionLog() {
     }
   }, [log])
 
-  const addMeal = () => persist({ ...log, meals: [...(log.meals || []), { id: uuidv4(), name: MEAL_TYPES[Math.min((log.meals?.length || 0), MEAL_TYPES.length - 1)], foods: [] }] })
+  const addMeal = () => {
+    const updatedLog = { ...log, meals: [...(log.meals || []), { id: uuidv4(), name: MEAL_TYPES[Math.min((log.meals?.length || 0), MEAL_TYPES.length - 1)], foods: [] }] }
+    persist(updatedLog)
+    // Notify coach the first time the athlete logs a meal today
+    const today = format(new Date(), 'yyyy-MM-dd')
+    if (coachId && selectedDate === today && !notifiedTodayRef.current && (log?.meals || []).length === 0) {
+      notifiedTodayRef.current = true
+      const name = currentUser.name || currentUser.username
+      createNotification(coachId, 'nutrition_logged', `${name} started logging nutrition`, null, `/mentee/${currentUser.id}`).catch(() => {})
+      sendPushNotification(coachId, `${name} is logging nutrition`, 'Tap to view their progress', `/mentee/${currentUser.id}`).catch(console.error)
+    }
+  }
   const updateMealFoods = (mealId, foods) => persist({ ...log, meals: log.meals.map((m) => m.id === mealId ? { ...m, foods } : m) })
   const updateMealName  = (mealId, name)  => persist({ ...log, meals: log.meals.map((m) => m.id === mealId ? { ...m, name }  : m) })
   const deleteMeal      = (mealId)        => persist({ ...log, meals: log.meals.filter((m) => m.id !== mealId) })

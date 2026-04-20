@@ -10,7 +10,7 @@ import { useApp } from '../../context/AppContext'
 import {
   getWorkouts, addWorkout, updateWorkout, deleteWorkout,
   getActivePlan, createNotification, checkAndUpsertPR,
-  getWorkoutComments, addWorkoutComment
+  getWorkoutComments, addWorkoutComment, sendPushNotification,
 } from '../../lib/db'
 import { calc1RM, calcRPE1RM } from '../../utils/calculations'
 import ExercisePicker, { CATEGORY_COLORS } from './ExercisePicker'
@@ -229,13 +229,8 @@ export default function WorkoutLog() {
         if (form.plan_id && activePlan) {
           const dayLabel = activePlan.days?.[form.plan_day_index]?.day_label || `Day ${(form.plan_day_index ?? 0) + 1}`
           const athleteName = currentUser.name || currentUser.username
-          createNotification(
-            activePlan.coach_id,
-            'session_logged',
-            `${athleteName} logged ${dayLabel}`,
-            null,
-            `/mentee/${currentUser.id}`
-          ).catch(() => {})
+          createNotification(activePlan.coach_id, 'session_logged', `${athleteName} logged ${dayLabel}`, null, `/mentee/${currentUser.id}`).catch(() => {})
+          sendPushNotification(activePlan.coach_id, `${athleteName} completed a session`, dayLabel, `/mentee/${currentUser.id}`).catch(console.error)
         }
       }
 
@@ -263,13 +258,8 @@ export default function WorkoutLog() {
       if (newPRs.length > 0 && activePlan?.coach_id) {
         const athleteName = currentUser.name || currentUser.username
         const prSummary = newPRs.map((p) => `${p.exercise} ${p.reps}RM: ${p.weight}${unit}`).join(', ')
-        createNotification(
-          activePlan.coach_id,
-          'new_pr',
-          `🏆 ${athleteName} hit a new PR!`,
-          prSummary,
-          `/mentee/${currentUser.id}`
-        ).catch(() => {})
+        createNotification(activePlan.coach_id, 'new_pr', `🏆 ${athleteName} hit a new PR!`, prSummary, `/mentee/${currentUser.id}`).catch(() => {})
+        sendPushNotification(activePlan.coach_id, `🏆 ${athleteName} hit a new PR!`, prSummary, `/mentee/${currentUser.id}`).catch(console.error)
       }
 
       await loadWorkouts()
