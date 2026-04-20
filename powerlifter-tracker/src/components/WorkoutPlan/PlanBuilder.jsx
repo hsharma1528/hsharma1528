@@ -8,7 +8,7 @@ import {
 import { useApp } from '../../context/AppContext'
 import {
   createWorkoutPlan, updateWorkoutPlan, getPlan, getMenteeProfile, createNotification,
-  getTrainingBlocks, createTrainingBlock, createTemplate,
+  getTrainingBlocks, createTrainingBlock, createTemplate, sendPushNotification,
 } from '../../lib/db'
 import ExercisePicker, { CATEGORY_COLORS } from '../Workout/ExercisePicker'
 
@@ -331,9 +331,11 @@ export default function PlanBuilder() {
       if (planId) {
         await updateWorkoutPlan(planId, payload)
         createNotification(athleteId, 'plan_updated', `Your training plan was updated: ${title}`, null, '/workout').catch(() => {})
+        sendPushNotification(athleteId, 'Plan updated', `Your training plan was updated: ${title}`, '/workout').catch(() => {})
       } else {
         await createWorkoutPlan({ ...payload, coach_id: currentUser.id, athlete_id: athleteId })
         createNotification(athleteId, 'plan_created', `New training plan assigned: ${title}`, null, '/workout').catch(() => {})
+        sendPushNotification(athleteId, 'New plan assigned', `${title} is ready — tap to view`, '/workout').catch(() => {})
       }
       navigate(`/mentee/${athleteId}`)
     } catch (err) {
