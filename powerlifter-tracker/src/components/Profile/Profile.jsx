@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight, UserCheck, Search, Camera, Instagram, Twitter, Globe, Bell } from 'lucide-react'
+import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight, UserCheck, Search, Camera, Instagram, Twitter, Globe, Bell, Smartphone } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { updateProfile, getMyEnrollments, cancelEnrollment, uploadAvatar } from '../../lib/db'
+import { updateProfile, getMyEnrollments, cancelEnrollment, uploadAvatar, savePushSubscription, deletePushSubscription } from '../../lib/db'
+import { isPushSupported, subscribeToPush, unsubscribeFromPush, getCurrentSubscription } from '../../lib/pushNotifications'
 import { calcCalorieTargets, calcDOTS, calcWilks } from '../../utils/calculations'
 
 const PHASES = [
@@ -106,6 +107,8 @@ export default function Profile() {
   const [saved,           setSaved]           = useState(false)
   const [enrollment,      setEnrollment]      = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [pushSub,         setPushSub]         = useState(null)
+  const [pushLoading,     setPushLoading]     = useState(false)
   const avatarInputRef = useRef(null)
 
   useEffect(() => {
@@ -115,6 +118,12 @@ export default function Profile() {
         .catch(console.error)
     }
   }, [currentUser.id, isCoach])
+
+  useEffect(() => {
+    if (isPushSupported()) {
+      getCurrentSubscription().then(setPushSub).catch(() => {})
+    }
+  }, [])
 
   const set = (field, value) => setForm((f) => ({ ...f, [field]: value }))
 
@@ -149,6 +158,35 @@ export default function Profile() {
       alert('Upload failed: ' + err.message)
     } finally {
       setUploadingAvatar(false)
+    }
+  }
+
+  const handleEnablePush = async () => {
+    setPushLoading(true)
+    try {
+      const sub = await subscribeToPush()
+      await savePushSubscription(currentUser.id, sub)
+      setPushSub(sub)
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setPushLoading(false)
+    }
+  }
+
+  const handleDisablePush = async () => {
+    setPushLoading(true)
+    try {
+      const sub = await getCurrentSubscription()
+      if (sub) {
+        await deletePushSubscription(currentUser.id, sub.endpoint)
+        await unsubscribeFromPush()
+      }
+      setPushSub(null)
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setPushLoading(false)
     }
   }
 
@@ -475,30 +513,64 @@ export default function Profile() {
         </div>
       </Section>
 
-      {/* ── Notification preferences (Epic 12) ── */}
+      {/* ── Notifications ── */}
       <Section title="Notifications" icon={Bell} iconColor="text-yellow-400">
-        <div className="mb-3 text-dark-400 text-xs">
-          Receive plan reminders and coach replies via SMS or WhatsApp.
-          Requires a phone number and Twilio integration to be configured.
+
+        {/* Push notifications (PWA) */}
+        <div className="flex items-center justify-between p-4 bg-dark-900 rounded-xl border border-dark-700 mb-3">
+          <div>
+            <div className="text-white text-sm font-medium flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-blue-400" />Push notifications
+            </div>
+            <div className="text-dark-400 text-xs mt-0.5">
+              {!isPushSupported()
+                ? 'Not supported on this browser'
+                : pushSub
+                  ? 'Enabled on this device'
+                  : 'Plans, messages, and check-in reminders'}
+            </div>
+          </div>
+          {isPushSupported() && (
+            <button onClick={pushSub ? handleDisablePush : handleEnablePush}
+              disabled={pushLoading}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 ${
+                pushSub
+                  ? 'bg-dark-700 hover:bg-dark-600 text-dark-300 border border-dark-600'
+                  : 'bg-brand-600 hover:bg-brand-500 text-white'
+              }`}>
+              {pushLoading ? '…' : pushSub ? 'Disable' : 'Enable'}
+            </button>
+          )}
         </div>
+        {pushSub && (
+          <p className="text-green-400 text-xs mb-3 px-1">✓ This device will receive push notifications</p>
+        )}
+
+        {/* iOS tip */}
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3 mb-4 text-xs text-blue-300">
+          <span className="font-medium">iPhone / iPad:</span> First tap Share → "Add to Home Screen", then come back here to enable notifications.
+        </div>
+
+        {/* Legacy SMS / WhatsApp */}
+        <div className="text-dark-500 text-xs mb-2 mt-1">Optional: SMS / WhatsApp (requires Twilio setup)</div>
         {[
-          ['notify_sms',      'SMS notifications',      'Sent to your phone number via text message'],
-          ['notify_whatsapp', 'WhatsApp notifications', 'Sent via WhatsApp to your phone number'],
+          ['notify_sms',      'SMS',      'Text message to your phone number'],
+          ['notify_whatsapp', 'WhatsApp', 'WhatsApp message to your phone number'],
         ].map(([field, label, desc]) => (
-          <div key={field} className="flex items-center justify-between p-4 bg-dark-900 rounded-xl border border-dark-700 mb-3">
+          <div key={field} className="flex items-center justify-between p-3 bg-dark-900 rounded-xl border border-dark-700 mb-2">
             <div>
-              <div className="text-white text-sm font-medium">{label}</div>
-              <div className="text-dark-400 text-xs mt-0.5">{desc}</div>
+              <div className="text-dark-300 text-sm">{label}</div>
+              <div className="text-dark-500 text-xs">{desc}</div>
             </div>
             <button type="button" onClick={() => set(field, !form[field])}>
               {form[field]
-                ? <ToggleRight className="w-9 h-9 text-brand-400" />
-                : <ToggleLeft  className="w-9 h-9 text-dark-500" />}
+                ? <ToggleRight className="w-8 h-8 text-brand-400" />
+                : <ToggleLeft  className="w-8 h-8 text-dark-600" />}
             </button>
           </div>
         ))}
         {(form.notify_sms || form.notify_whatsapp) && !form.phone_number && (
-          <p className="text-yellow-400 text-xs">Add a phone number in Personal info to receive notifications.</p>
+          <p className="text-yellow-400 text-xs mt-1">Add a phone number in Personal info to use SMS/WhatsApp.</p>
         )}
       </Section>
 
