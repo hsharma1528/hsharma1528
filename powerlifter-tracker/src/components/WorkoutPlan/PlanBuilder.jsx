@@ -58,7 +58,7 @@ function PlanExerciseRow({ ex, onChange, onDelete }) {
   )
 }
 
-function PlanDayCard({ day, dayIndex, onChange, onDelete }) {
+function PlanDayCard({ day, dayIndex, onChange, onDelete, coachId }) {
   const [expanded, setExpanded]   = useState(true)
   const [showPicker, setShowPicker] = useState(false)
 
@@ -75,7 +75,7 @@ function PlanDayCard({ day, dayIndex, onChange, onDelete }) {
 
   return (
     <div className="bg-dark-800 rounded-2xl border border-dark-700 overflow-hidden">
-      {showPicker && <ExercisePicker onSelect={addExercise} onClose={() => setShowPicker(false)} />}
+      {showPicker && <ExercisePicker onSelect={addExercise} onClose={() => setShowPicker(false)} coachId={coachId} />}
       <div className="flex items-center gap-3 p-4">
         <GripVertical className="w-4 h-4 text-dark-600 shrink-0" />
         <input
@@ -455,6 +455,7 @@ export default function PlanBuilder() {
       <div className="space-y-4">
         {days.map((day, idx) => (
           <PlanDayCard key={day.id} day={day} dayIndex={idx}
+            coachId={currentUser.id}
             onChange={(updated) => updateDay(idx, updated)}
             onDelete={() => removeDay(idx)} />
         ))}

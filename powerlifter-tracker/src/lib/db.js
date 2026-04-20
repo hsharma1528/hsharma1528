@@ -1,9 +1,18 @@
 /**
  * db.js – all Supabase database operations
- * Replaces the old localStorage-based storage.js
  * Every function is async and throws on error.
  */
 import { supabase } from './supabase'
+
+// ── Avatar upload (Supabase Storage) ──────────────────────────────
+export async function uploadAvatar(userId, file) {
+  const ext  = file.name.split('.').pop()
+  const path = `${userId}/avatar.${ext}`
+  const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true })
+  if (error) throw error
+  const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+  return data.publicUrl
+}
 
 // ── Auth ──────────────────────────────────────────────────────────
 
@@ -605,4 +614,287 @@ export async function applyTemplate(template, { coachId, athleteId, weekStart, a
     is_active:  false,
     days:       resolvedDays,
   })
+}
+
+// ── Coach custom exercises (Epic 15) ──────────────────────────────
+
+export async function getCoachExercises(coachId) {
+  const { data, error } = await supabase
+    .from('coach_exercises')
+    .select('*')
+    .eq('coach_id', coachId)
+    .order('name', { ascending: true })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createCoachExercise(exercise) {
+  const { data, error } = await supabase
+    .from('coach_exercises')
+    .insert(exercise)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteCoachExercise(id) {
+  const { error } = await supabase.from('coach_exercises').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ── Block templates (Epic 9) ───────────────────────────────────────
+
+export async function getBlockTemplates(coachId) {
+  const { data, error } = await supabase
+    .from('block_templates')
+    .select('*')
+    .or(`coach_id.eq.${coachId},is_system.eq.true`)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function createBlockTemplate(template) {
+  const { data, error } = await supabase
+    .from('block_templates')
+    .insert(template)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteBlockTemplate(id) {
+  const { error } = await supabase.from('block_templates').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Apply a block template: creates the block record + all weekly plans
+export async function applyBlockTemplate(template, { coachId, athleteId, blockStartDate }) {
+  const addDays = (dateStr, days) => {
+    const d = new Date(dateStr)
+    d.setDate(d.getDate() + days)
+    return d.toISOString().split('T')[0]
+  }
+
+  const block = await createTrainingBlock({
+    coach_id:        coachId,
+    athlete_id:      athleteId,
+    label:           template.title,
+    goal_squat:      template.goal_squat      || null,
+    goal_bench:      template.goal_bench      || null,
+    goal_deadlift:   template.goal_deadlift   || null,
+    goal_bodyweight: template.goal_bodyweight || null,
+    goal_notes:      template.goal_notes      || null,
+    start_date:      blockStartDate,
+    end_date:        template.duration_weeks
+      ? addDays(blockStartDate, template.duration_weeks * 7 - 1)
+      : null,
+  })
+
+  await Promise.all((template.plans || []).map((planTpl) =>
+    createWorkoutPlan({
+      coach_id:   coachId,
+      athlete_id: athleteId,
+      block_id:   block.id,
+      title:      planTpl.title,
+      week_start: addDays(blockStartDate, (planTpl.week_offset || 0) * 7),
+      is_active:  false,
+      days:       planTpl.days || [],
+    })
+  ))
+
+  return block
+}
+
+// ── Public programs (Epic 13) ──────────────────────────────────────
+
+export async function getPublicTemplates() {
+  const { data, error } = await supabase
+    .from('plan_templates')
+    .select('*, coach:coach_id(id, name, username)')
+    .eq('is_public', true)
+    .eq('is_paid', false)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getProgramSubscriptions(athleteId) {
+  const { data, error } = await supabase
+    .from('program_subscriptions')
+    .select('template_id')
+    .eq('athlete_id', athleteId)
+  if (error) throw error
+  return new Set((data ?? []).map((r) => r.template_id))
+}
+
+export async function subscribeToProgram(athleteId, template) {
+  const weekStart = new Date().toISOString().split('T')[0]
+  await createWorkoutPlan({
+    coach_id:   athleteId, // self-coached
+    athlete_id: athleteId,
+    title:      template.title,
+    week_start: weekStart,
+    is_active:  true,
+    days:       template.days || [],
+  })
+  const { error } = await supabase
+    .from('program_subscriptions')
+    .upsert({ athlete_id: athleteId, template_id: template.id }, { onConflict: 'athlete_id,template_id' })
+  if (error) throw error
+}
+
+// ── Marketplace / paid programs (Epic 18) ─────────────────────────
+
+export async function getPaidTemplates() {
+  const { data, error } = await supabase
+    .from('plan_templates')
+    .select('*, coach:coach_id(id, name, username, bio, experience_years)')
+    .eq('is_paid', true)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function getPurchasedTemplates(athleteId) {
+  const { data, error } = await supabase
+    .from('plan_purchases')
+    .select('*, template:template_id(*)')
+    .eq('athlete_id', athleteId)
+    .order('purchased_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+export async function recordPurchase(athleteId, templateId, amountCents = 0, stripeSessionId = null) {
+  const { error } = await supabase
+    .from('plan_purchases')
+    .upsert({ athlete_id: athleteId, template_id: templateId, amount_cents: amountCents, stripe_session_id: stripeSessionId },
+      { onConflict: 'athlete_id,template_id' })
+  if (error) throw error
+}
+
+export async function getTemplatePurchasers(templateId) {
+  const { data, error } = await supabase
+    .from('plan_purchases')
+    .select('*, athlete:athlete_id(id, name, username, squat_max, bench_max, deadlift_max, weight, weight_unit)')
+    .eq('template_id', templateId)
+    .order('purchased_at', { ascending: false })
+  if (error) throw error
+  return data ?? []
+}
+
+// Call Supabase Edge Function to create Stripe Checkout session
+export async function createStripeCheckout(templateId, priceId, athleteId) {
+  const { data, error } = await supabase.functions.invoke('create-checkout', {
+    body: {
+      templateId,
+      priceId,
+      athleteId,
+      successUrl: `${window.location.origin}/marketplace?success=1&template=${templateId}`,
+      cancelUrl:  `${window.location.origin}/marketplace`,
+    },
+  })
+  if (error) throw error
+  return data
+}
+
+// ── In-app messaging (Epic 17) ────────────────────────────────────
+
+export async function getMessages(userId1, userId2) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*, sender:sender_id(id, name, username, avatar_url, role)')
+    .or(`and(sender_id.eq.${userId1},recipient_id.eq.${userId2}),and(sender_id.eq.${userId2},recipient_id.eq.${userId1})`)
+    .order('created_at', { ascending: true })
+    .limit(200)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function sendMessage(senderId, recipientId, body) {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ sender_id: senderId, recipient_id: recipientId, body })
+    .select('*, sender:sender_id(id, name, username, avatar_url, role)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function getUnreadMessageCount(userId) {
+  const { count, error } = await supabase
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('recipient_id', userId)
+    .is('read_at', null)
+  if (error) throw error
+  return count ?? 0
+}
+
+export async function markMessagesRead(userId, senderId) {
+  const { error } = await supabase
+    .from('messages')
+    .update({ read_at: new Date().toISOString() })
+    .eq('recipient_id', userId)
+    .eq('sender_id', senderId)
+    .is('read_at', null)
+  if (error) throw error
+}
+
+// ── Coach analytics (Epic 11) ─────────────────────────────────────
+
+export async function getCoachAnalytics(coachId) {
+  const mentees = await getMentees(coachId)
+  const analytics = await Promise.all(mentees.map(async (m) => {
+    const athleteId = m.athlete_id
+    const [plans, checkIns, wl] = await Promise.all([
+      getWorkoutPlansForMentee(coachId, athleteId),
+      getCheckIns(athleteId, 8).catch(() => []),
+      getMenteeWeightLog(athleteId).catch(() => []),
+    ])
+
+    let totalDays = 0, completedDays = 0
+    await Promise.all(plans.slice(0, 6).map(async (plan) => {
+      const ws = await getPlanWorkouts(plan.id)
+      totalDays    += (plan.days || []).length
+      completedDays += new Set(ws.map((w) => w.plan_day_index).filter((i) => i != null)).size
+    }))
+
+    const complianceRate = totalDays > 0 ? Math.round((completedDays / totalDays) * 100) : null
+
+    const allScores = checkIns.flatMap((ci) =>
+      [ci.energy, ci.sleep_quality, ci.soreness, ci.motivation].filter(Boolean)
+    )
+    const avgCheckIn = allScores.length > 0
+      ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1)
+      : null
+
+    const weightChange = wl.length >= 2
+      ? (wl[0].weight - wl[wl.length - 1].weight).toFixed(1)
+      : null
+
+    return {
+      mentee:          m,
+      complianceRate,
+      avgCheckIn:      avgCheckIn ? parseFloat(avgCheckIn) : null,
+      weightChange:    weightChange ? parseFloat(weightChange) : null,
+      weightUnit:      m.athlete?.weight_unit || 'kg',
+      lastCheckIn:     checkIns[0] || null,
+      activePlanCount: plans.filter((p) => p.is_active).length,
+    }
+  }))
+  return analytics
+}
+
+// ── Phone notifications via Edge Function (Epic 12) ───────────────
+
+export async function sendPhoneNotification(to, message, channel = 'sms') {
+  const { data, error } = await supabase.functions.invoke('send-notification', {
+    body: { to, message, channel },
+  })
+  if (error) throw error
+  return data
 }

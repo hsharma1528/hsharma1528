@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
-import { Search, X, ChevronRight } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Search, X, ChevronRight, Plus } from 'lucide-react'
+import { getCoachExercises } from '../../lib/db'
 
 export const PRESET_EXERCISES = [
   { name: 'Squat',               category: 'squat' },
@@ -31,10 +32,25 @@ export const CATEGORY_COLORS = {
   other:    'text-purple-400 bg-purple-500/10 border-purple-500/30',
 }
 
-export default function ExercisePicker({ onSelect, onClose }) {
-  const [search, setSearch] = useState('')
-  const [custom, setCustom] = useState('')
-  const filtered = PRESET_EXERCISES.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
+// coachId is optional; when provided, coach's custom exercises are shown
+export default function ExercisePicker({ onSelect, onClose, coachId }) {
+  const [search,        setSearch]        = useState('')
+  const [custom,        setCustom]        = useState('')
+  const [coachExercises, setCoachExercises] = useState([])
+
+  useEffect(() => {
+    if (coachId) {
+      getCoachExercises(coachId).then(setCoachExercises).catch(() => {})
+    }
+  }, [coachId])
+
+  const allExercises = [
+    ...coachExercises.map((e) => ({ ...e, isCustom: true })),
+    ...PRESET_EXERCISES,
+  ]
+  const filtered = allExercises.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
+  const customList = filtered.filter((e) => e.isCustom)
+  const presetList = filtered.filter((e) => !e.isCustom)
 
   return (
     <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center bg-dark-950/80 backdrop-blur-sm px-4 pb-4">
@@ -52,7 +68,25 @@ export default function ExercisePicker({ onSelect, onClose }) {
           </div>
         </div>
         <div className="overflow-y-auto flex-1 p-2">
-          {filtered.map((ex) => {
+          {customList.length > 0 && (
+            <>
+              <div className="px-3 py-1.5 text-dark-500 text-xs uppercase tracking-wider">My exercises</div>
+              {customList.map((ex) => {
+                const cc = CATEGORY_COLORS[ex.category] || CATEGORY_COLORS.other
+                return (
+                  <button key={`custom-${ex.id || ex.name}`} onClick={() => { onSelect(ex); onClose() }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-dark-700 transition-colors text-left">
+                    <span className={`px-2 py-0.5 rounded-lg border text-xs ${cc}`}>{ex.category}</span>
+                    <span className="text-white text-sm">{ex.name}</span>
+                    <span className="text-xs text-brand-500 ml-1">custom</span>
+                    <ChevronRight className="w-4 h-4 text-dark-500 ml-auto" />
+                  </button>
+                )
+              })}
+              {presetList.length > 0 && <div className="px-3 py-1.5 text-dark-500 text-xs uppercase tracking-wider mt-1">Preset exercises</div>}
+            </>
+          )}
+          {presetList.map((ex) => {
             const cc = CATEGORY_COLORS[ex.category] || CATEGORY_COLORS.other
             return (
               <button key={ex.name} onClick={() => { onSelect(ex); onClose() }}

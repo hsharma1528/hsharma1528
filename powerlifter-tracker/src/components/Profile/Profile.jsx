@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight, UserCheck, Search } from 'lucide-react'
+import { Save, User, Dumbbell, Target, Users, ToggleLeft, ToggleRight, UserCheck, Search, Camera, Instagram, Twitter, Globe, Bell } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { updateProfile, getMyEnrollments, cancelEnrollment } from '../../lib/db'
+import { updateProfile, getMyEnrollments, cancelEnrollment, uploadAvatar } from '../../lib/db'
 import { calcCalorieTargets, calcDOTS, calcWilks } from '../../utils/calculations'
 
 const PHASES = [
@@ -75,6 +75,13 @@ export default function Profile() {
     weight:          currentUser.weight          || '',
     height:          currentUser.height          || '',
     weight_unit:     currentUser.weight_unit     || 'lbs',
+    phone_number:    currentUser.phone_number    || '',
+    avatar_url:      currentUser.avatar_url      || '',
+    instagram_url:   currentUser.instagram_url   || '',
+    twitter_url:     currentUser.twitter_url     || '',
+    website_url:     currentUser.website_url     || '',
+    notify_sms:      currentUser.notify_sms      ?? false,
+    notify_whatsapp: currentUser.notify_whatsapp ?? false,
     // Athlete-specific
     phase:           currentUser.phase           || 'offseason',
     goal_weight:     currentUser.goal_weight     || '',
@@ -86,7 +93,6 @@ export default function Profile() {
     target_protein:  currentUser.target_protein  || '',
     target_carbs:    currentUser.target_carbs    || '',
     target_fat:      currentUser.target_fat      || '',
-    phone_number:    currentUser.phone_number    || '',
     // Coach-specific
     bio:                     currentUser.bio                     || '',
     experience_years:        currentUser.experience_years        || '',
@@ -96,9 +102,11 @@ export default function Profile() {
     coaching_specialties:    currentUser.coaching_specialties    || [],
   })
 
-  const [saving,     setSaving]     = useState(false)
-  const [saved,      setSaved]      = useState(false)
-  const [enrollment, setEnrollment] = useState(null)
+  const [saving,          setSaving]          = useState(false)
+  const [saved,           setSaved]           = useState(false)
+  const [enrollment,      setEnrollment]      = useState(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef(null)
 
   useEffect(() => {
     if (!isCoach) {
@@ -128,6 +136,22 @@ export default function Profile() {
     setForm((f) => ({ ...f, target_calories: targets.calories, target_protein: targets.protein, target_carbs: targets.carbs, target_fat: targets.fat }))
   }
 
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingAvatar(true)
+    try {
+      const url = await uploadAvatar(currentUser.id, file)
+      await updateProfile(currentUser.id, { avatar_url: url })
+      dispatch({ type: 'UPDATE_USER', payload: { avatar_url: url } })
+      setForm((f) => ({ ...f, avatar_url: url }))
+    } catch (err) {
+      alert('Upload failed: ' + err.message)
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
   const handleSave = async () => {
     setSaving(true)
     try {
@@ -138,6 +162,12 @@ export default function Profile() {
         weight:      parseFloat(form.weight) || currentUser.weight,
         height:      parseFloat(form.height) || currentUser.height,
         weight_unit: form.weight_unit,
+        phone_number:    form.phone_number    || null,
+        instagram_url:   form.instagram_url   || null,
+        twitter_url:     form.twitter_url     || null,
+        website_url:     form.website_url     || null,
+        notify_sms:      form.notify_sms,
+        notify_whatsapp: form.notify_whatsapp,
         // Athlete fields
         phase:           form.phase,
         goal_weight:     parseFloat(form.goal_weight) || 0,
@@ -156,7 +186,6 @@ export default function Profile() {
         coaching_phases:         form.coaching_phases,
         coaching_weight_classes: form.coaching_weight_classes,
         coaching_specialties:    form.coaching_specialties,
-        phone_number:            form.phone_number || null,
       }
       await updateProfile(currentUser.id, updates)
       dispatch({ type: 'UPDATE_USER', payload: updates })
@@ -191,6 +220,29 @@ export default function Profile() {
           <Save className="w-4 h-4" />
           {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
         </button>
+      </div>
+
+      {/* ── Avatar ── */}
+      <div className="bg-dark-800 rounded-2xl border border-dark-700 p-6 flex items-center gap-5">
+        <div className="relative shrink-0">
+          <div className="w-20 h-20 rounded-full border-2 border-dark-600 overflow-hidden bg-dark-700 flex items-center justify-center">
+            {form.avatar_url
+              ? <img src={form.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+              : <span className="text-2xl font-bold text-dark-400">{(currentUser.name || currentUser.username || '?')[0].toUpperCase()}</span>
+            }
+          </div>
+          <button onClick={() => avatarInputRef.current?.click()}
+            disabled={uploadingAvatar}
+            className="absolute -bottom-1 -right-1 w-7 h-7 bg-brand-600 hover:bg-brand-500 rounded-full flex items-center justify-center shadow-lg transition-colors disabled:opacity-50">
+            <Camera className="w-3.5 h-3.5 text-white" />
+          </button>
+          <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+        </div>
+        <div>
+          <div className="text-white font-semibold">{currentUser.name || currentUser.username}</div>
+          <div className="text-dark-400 text-sm">@{currentUser.username}</div>
+          <div className="text-dark-500 text-xs mt-1">{uploadingAvatar ? 'Uploading…' : 'Click camera to change photo'}</div>
+        </div>
       </div>
 
       {/* ── Coach profile section (coaches only) ── */}
@@ -402,6 +454,53 @@ export default function Profile() {
           )}
         </Section>
       )}
+
+      {/* ── Social links ── */}
+      <Section title="Social & web" icon={Globe} iconColor="text-blue-400">
+        <div className="space-y-4">
+          {[
+            ['instagram_url', 'Instagram', '@username or full URL', Instagram, 'text-pink-400'],
+            ['twitter_url',   'X / Twitter', '@username or full URL', Twitter,   'text-sky-400'],
+            ['website_url',   'Website',    'https://yoursite.com',  Globe,     'text-green-400'],
+          ].map(([field, label, placeholder, Icon, iconColor]) => (
+            <div key={field} className="relative">
+              <label className={labelCls}>{label}</label>
+              <div className="relative">
+                <Icon className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${iconColor}`} />
+                <input value={form[field]} onChange={(e) => set(field, e.target.value)}
+                  className={inputCls + ' pl-10'} placeholder={placeholder} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── Notification preferences (Epic 12) ── */}
+      <Section title="Notifications" icon={Bell} iconColor="text-yellow-400">
+        <div className="mb-3 text-dark-400 text-xs">
+          Receive plan reminders and coach replies via SMS or WhatsApp.
+          Requires a phone number and Twilio integration to be configured.
+        </div>
+        {[
+          ['notify_sms',      'SMS notifications',      'Sent to your phone number via text message'],
+          ['notify_whatsapp', 'WhatsApp notifications', 'Sent via WhatsApp to your phone number'],
+        ].map(([field, label, desc]) => (
+          <div key={field} className="flex items-center justify-between p-4 bg-dark-900 rounded-xl border border-dark-700 mb-3">
+            <div>
+              <div className="text-white text-sm font-medium">{label}</div>
+              <div className="text-dark-400 text-xs mt-0.5">{desc}</div>
+            </div>
+            <button type="button" onClick={() => set(field, !form[field])}>
+              {form[field]
+                ? <ToggleRight className="w-9 h-9 text-brand-400" />
+                : <ToggleLeft  className="w-9 h-9 text-dark-500" />}
+            </button>
+          </div>
+        ))}
+        {(form.notify_sms || form.notify_whatsapp) && !form.phone_number && (
+          <p className="text-yellow-400 text-xs">Add a phone number in Personal info to receive notifications.</p>
+        )}
+      </Section>
 
       {/* ── Nutrition targets ── */}
       <Section title="Nutrition targets" icon={Target}>

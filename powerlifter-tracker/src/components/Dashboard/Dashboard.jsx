@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { format, differenceInDays, parseISO, subDays, startOfWeek } from 'date-fns'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { Dumbbell, Apple, TrendingUp, Target, Flame, Droplets, Calendar, ChevronRight, Scale, ClipboardCheck } from 'lucide-react'
+import { Dumbbell, Apple, TrendingUp, Target, Flame, Droplets, Calendar, ChevronRight, Scale, ClipboardCheck, CheckCircle, Circle, ClipboardList } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getWorkouts, getNutritionByDate, getWeightLog, getLatestCheckIn } from '../../lib/db'
+import { getWorkouts, getNutritionByDate, getWeightLog, getLatestCheckIn, getActivePlan, getPlanWorkouts } from '../../lib/db'
 import { phaseColors, phaseLabels, calcDOTS } from '../../utils/calculations'
 import CoachDashboard from './CoachDashboard'
 
@@ -75,6 +75,8 @@ export default function Dashboard() {
   const [workouts,       setWorkouts]       = useState([])
   const [todayNutrition, setTodayNutrition] = useState(null)
   const [weightLog,      setWeightLog]      = useState([])
+  const [activePlan,     setActivePlan]     = useState(null)
+  const [planDone,       setPlanDone]       = useState(new Set())
   const [loading,        setLoading]        = useState(true)
   const [checkInMissing, setCheckInMissing] = useState(false)
 
@@ -85,17 +87,23 @@ export default function Dashboard() {
     async function load() {
       setLoading(true)
       try {
-        const [w, n, wl, lastCI] = await Promise.all([
+        const [w, n, wl, lastCI, plan] = await Promise.all([
           getWorkouts(currentUser.id),
           getNutritionByDate(currentUser.id, today),
           getWeightLog(currentUser.id),
           getLatestCheckIn(currentUser.id),
+          getActivePlan(currentUser.id).catch(() => null),
         ])
         if (!active) return
         setWorkouts(w)
         setTodayNutrition(n)
         setWeightLog(wl)
         setCheckInMissing(!lastCI || lastCI.week_start < thisWeekStart)
+        if (plan) {
+          setActivePlan(plan)
+          const planWs = await getPlanWorkouts(plan.id)
+          setPlanDone(new Set(planWs.map((pw) => pw.plan_day_index).filter((i) => i != null)))
+        }
       } finally {
         if (active) setLoading(false)
       }
@@ -336,6 +344,49 @@ export default function Dashboard() {
             <span>Start: {currentUser.weight} {currentUser.weight_unit}</span>
             <span className={`font-medium ${phase === 'cut' ? 'text-orange-400' : 'text-green-400'}`}>{goalPct}% complete</span>
             <span>Goal: {currentUser.goal_weight} {currentUser.weight_unit}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Active training plan */}
+      {!loading && activePlan && (
+        <div className="bg-dark-800 rounded-2xl border border-dark-700 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-white flex items-center gap-2">
+              <ClipboardList className="w-5 h-5 text-brand-400" />This week's plan
+            </h2>
+            <Link to="/workout" className="text-dark-400 hover:text-white text-sm flex items-center gap-1 transition-colors">
+              Log session <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+          <p className="text-dark-400 text-xs mb-3">{activePlan.title}</p>
+          <div className="space-y-2">
+            {(activePlan.days || []).map((day, idx) => {
+              const done = planDone.has(idx)
+              return (
+                <Link key={day.id || idx} to="/workout"
+                  className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                    done ? 'border-green-500/30 bg-green-500/5' : 'border-dark-700 bg-dark-900 hover:border-dark-600'
+                  }`}>
+                  {done
+                    ? <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+                    : <Circle className="w-4 h-4 text-dark-600 shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-medium truncate ${done ? 'text-green-400' : 'text-white'}`}>
+                      {day.day_label || `Day ${idx + 1}`}
+                    </div>
+                    {(day.exercises || []).length > 0 && (
+                      <div className="text-dark-500 text-xs truncate mt-0.5">
+                        {day.exercises.map((e) => e.name).join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border shrink-0 ${
+                    done ? 'border-green-500/30 text-green-400' : 'border-dark-700 text-dark-500'
+                  }`}>{done ? 'Done' : 'Start'}</span>
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}
