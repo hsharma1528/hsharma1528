@@ -10,7 +10,7 @@ import { useApp } from '../../context/AppContext'
 import {
   getEnrollmentRequests, updateEnrollmentStatus, getMentees,
   createNotification, getMenteeWorkouts, getActivePlan,
-  getLatestCheckIn, getWorkoutPlansForMentee
+  getLatestCheckIn, getWorkoutPlansForMentee, sendPushNotification,
 } from '../../lib/db'
 import { phaseLabels, phaseColors } from '../../utils/calculations'
 
@@ -46,21 +46,11 @@ function RequestCard({ req, onAccept, onDecline }) {
       onAccept(req.id, status)
       const coachName = currentUser.name || currentUser.username
       if (status === 'accepted') {
-        createNotification(
-          req.athlete_id,
-          'enrollment_accepted',
-          'Your coaching request was accepted!',
-          `${coachName} is now your coach.`,
-          '/profile'
-        ).catch(() => {})
+        createNotification(req.athlete_id, 'enrollment_accepted', 'Your coaching request was accepted!', `${coachName} is now your coach.`, '/profile').catch(() => {})
+        sendPushNotification(req.athlete_id, 'Coaching request accepted! 🎉', `${coachName} is now your coach.`, '/profile').catch(console.error)
       } else {
-        createNotification(
-          req.athlete_id,
-          'enrollment_declined',
-          'Coaching request update',
-          'Your request was not accepted at this time.',
-          '/coaches'
-        ).catch(() => {})
+        createNotification(req.athlete_id, 'enrollment_declined', 'Coaching request update', 'Your request was not accepted at this time.', '/coaches').catch(() => {})
+        sendPushNotification(req.athlete_id, 'Coaching request update', 'Your request was not accepted at this time.', '/coaches').catch(console.error)
       }
     } finally {
       setBusy(false)

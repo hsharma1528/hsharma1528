@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { Search, Users, Clock, CheckCircle, XCircle, ChevronDown, X, Send } from 'lucide-react'
 import { useApp } from '../../context/AppContext'
-import { getCoaches, getMyEnrollments, requestEnrollment, cancelEnrollment, createNotification } from '../../lib/db'
+import { getCoaches, getMyEnrollments, requestEnrollment, cancelEnrollment, createNotification, sendPushNotification } from '../../lib/db'
 
 const ALL_SPECIALTIES = [
   'Raw', 'Equipped', 'Powerbuilding', 'Beginner coaching',
@@ -20,13 +20,8 @@ function RequestModal({ coach, onClose, onSent }) {
     setSending(true)
     try {
       await requestEnrollment(currentUser.id, coach.id, message.trim())
-      createNotification(
-        coach.id,
-        'enrollment_request',
-        `New coaching request from ${currentUser.name || currentUser.username}`,
-        message.trim() || null,
-        '/dashboard'
-      ).catch(() => {})
+      createNotification(coach.id, 'enrollment_request', `New coaching request from ${currentUser.name || currentUser.username}`, message.trim() || null, '/dashboard').catch(() => {})
+      sendPushNotification(coach.id, 'New coaching request', `From ${currentUser.name || currentUser.username}`, '/dashboard').catch(console.error)
       onSent(coach.id)
       onClose()
     } catch (err) {
